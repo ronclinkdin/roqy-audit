@@ -1,33 +1,139 @@
 # roqy-audit
 
 Read-only infrastructure audit toolkit for startups without a DevOps engineer.
-Built and battle-tested by [roqy.io](https://roqy.io) on our own stack first.
+Built and battle-tested by [roqy.io](https://roqy.io) on our own stack first:
+every check in this repo was run against a live environment before it landed here.
 
 Three layers, one report:
 
 | Layer | Tool | What it checks |
 |---|---|---|
 | Repo | `skills/infra-readiness-audit` | Secrets in git, CI/CD gates, Terraform state, review gaps |
-| Live | `skills/live-infra-audit` | What is actually running: ports, TLS, backups, disk, restart policies |
+| Live | `skills/live-infra-audit` | What is actually running: ports, TLS, backups, disk, cloud, K8s |
 | Change safety | [floci](https://github.com/floci-io/floci) (external) | Client IaC run against an emulated cloud before prod |
 
 Methodology follows [Cloudflare's security-audit-skill](https://github.com/cloudflare/security-audit-skill):
 recon before judgment, a pass that tries to disprove each finding, verdicts
 `confirmed` / `needs_validation` / `rejected`, priority only for confirmed items.
 
-## What we ran so far (real runs, real output)
+## What it audits (full coverage)
 
-1. **Repo audit of roqy itself** — 5 findings (2x P1 secrets/deploy gates, 2x P2, 1x monitoring). Report: `docs/runs/roqy-repo-2026-11-03.md`.
-2. **Live audit of our own VPS** — 7 findings, including 2x P0 the repo audit could never see: NPM admin UI exposed on port 81, and Supabase backup directories empty despite the cron running. Report: `docs/runs/vps-live-2026-11-03.md`.
+### Docker / VPS host — `skills/live-infra-audit/references/CHECKS-VPS.md`
+
+| # | Check | Finding if |
+|---|---|---|
+| L1 | Public ports | Service bound to 0.0.0.0 that should be localhost (DB, admin UI, debug port) |
+| L2 | TLS | Cert expired or <14 days left |
+| L3 | Restart policies | `no` on a prod container |
+| L4 | Image freshness | Prod image >6 months old or unpinned `:latest` on stateful services |
+| L5 | Backups | No backup cron, or output dirs empty/stale >7 days |
+| L6 | Disk | Any filesystem >85% |
+| L7 | Failed units | Any failed systemd service |
+| L8 | Firewall | Inactive while public services listen |
+| L9 | SSH | Password auth on or root password login |
+
+### GCP — `skills/live-infra-audit/references/CHECKS-GCP.md`
+
+| # | Check | Finding if |
+|---|---|---|
+| G1 | Open firewall | 0.0.0.0/0 allowing tcp:22/3389 or management ports |
+| G2 | Over-privileged service account | SA with roles/editor or owner AND a user-managed key |
+| G3 | VM scopes | cloud-platform scope on a running VM |
+| G4 | Budget alert | Zero budgets = cloud bills with no alert |
+| G5 | Disk backups | No snapshot schedule |
+| G6 | Public bucket object | Anonymous 200 on an object that should be private |
+| A1-A4 | Audit logs | No activity trail, no attribution, nobody watching the logs, data access unlogged (default OFF in GCP) |
+
+### AWS — `skills/live-infra-audit/references/CHECKS-AWS.md`
+
+| # | Check | Finding if |
+|---|---|---|
+| W1 | Public S3 buckets | Bucket policy public or anonymous 200 |
+| W2 | Open security groups | tcp:22/3389/admin ports from 0.0.0.0/0 |
+| W3 | Long-lived IAM keys | Keys older than 90 days, Active keys for departed users |
+| W4 | Root MFA | Root account without MFA (P0) |
+| W5 | Account-level S3 block | No account guardrail |
+| W6 | CloudTrail | Zero trails = no change history |
+| W7 | Budgets | None = bills with no alert |
+| W8 | Config / GuardDuty | Both empty = no guardrails |
+| W9 | EKS public endpoint | True without CIDR restriction. This is the EKS DEFAULT, not a misconfiguration |
+
+### Kubernetes (GKE / EKS) — `skills/live-infra-audit/references/CHECKS-K8S.md`
+
+| # | Check | Finding if |
+|---|---|---|
+| K7 | Privileged containers | Any workload pod privileged = container escape path |
+| K8 | hostPath volumes | hostPath / or docker.sock = node takeover |
+| K9 | RBAC over-grant | Workload service account with cluster-admin |
+| K10 | Public exposure | LoadBalancer on an admin/internal panel |
+| K11 | Image + limits | `:latest` images, no resource limits |
+| K12 | NetworkPolicy | Zero policies = any pod reaches any pod (default on fresh clusters) |
+| K13 | Token automount | Every pod holds a live API token it never uses |
+| K1-K6 | Access architecture | Discovery questions: private EKS behind VPN, CI/CD path, vendor access, Jenkins with prod credentials |
+
+### Terraform / IaC — `skills/live-infra-audit/references/CHECKS-IAC.md`
+
+| # | Check | Finding if |
+|---|---|---|
+| T1 | State exists and is real | Empty state with live resources = IaC is decoration |
+| T2 | Drift | Plan shows changes nobody declared = manual console changes |
+| T3 | State security | State on disk unencrypted, no remote locking |
+
+Plus the review order: static (tflint/checkov) → plan as the review artifact → state → drift → hygiene.
+
+### Client favorites — `skills/live-infra-audit/references/CHECKS-CLIENT.md` (every audit)
+
+| # | Check | Finding if |
+|---|---|---|
+| X1 | AI/LLM key sprawl | Shared company key, no spend caps. One leaked key = unlimited bill |
+| X2 | Bus factor | Critical paths held by one person, no offboarding checklist |
+| X3 | PII in logs | Customer data in logs with retention |
+| X4 | Dependency supply chain | Lockfile untouched for months, prod on EOL runtime |
+| X5 | Secrets rotation | Keys older than 90 days |
+| X6 | Domain/DNS blast radius | Registrar without 2FA. A hijacked DNS beats every other finding |
+
+## How it was validated (canary runs)
+
+Every check was validated against a deliberately dirty throwaway environment
+("canary"): plant known weaknesses, run the full audit, confirm every planted
+issue is detected AND compensating controls produce `rejected`, not `confirmed`.
+
+| Canary | Planted | Detected | Rejected correctly |
+|---|---|---|---|
+| GCP project | open firewall, SA editor+key, VM scope, no budget, no snapshots | 5/5 | public bucket (org policy) |
+| GKE cluster | privileged pod + hostPath, LB on admin panel, cluster-admin to default SA, :latest no limits, zero netpol | 5/5 | kube-system noise (excluded by rule) |
+| AWS account | public bucket with policy, open SG on 22 | 2/2 | object-ACL path (BucketOwnerEnforced) |
+| AWS EKS default state | nothing — default-state findings | public endpoint, no netpol, no CloudTrail, no budgets | clean RBAC, no legacy tokens |
+| roqy VPS (real) | none — real environment | 8 findings incl. 2 P0 the repo audit missed | TLS valid, restart policies ok |
+
+Real run reports: `docs/runs/`.
+
+## Regression harness
+
+`harness/run_audit_harness.py` validates every run artifact: report exists,
+under 120 lines, no secret/token leaks, findings.json schema, verdict hygiene
+(only CONFIRMED / NEEDS_VALIDATION / REJECTED), priority only on confirmed
+items, planted-finding coverage. It caught 4 real bugs across 8 live runs:
+
+1. Priority on a needs_validation item.
+2. Invented verdicts (PARTIAL, CLEAN) in headings.
+3. Harness regex false positive on verdicts outside parentheses.
+4. Gating on the agent process exit code instead of artifact validity.
+
+`harness/run_scenarios.py` runs per-target scenarios (repo / vps / gcp, gke opt-in).
 
 ## Install
 
-Copy the skill folders into your agent's skills directory:
-
 ```bash
-cp -r skills/infra-readiness-audit ~/.claude/skills/
+# Claude Code
 cp -r skills/live-infra-audit ~/.claude/skills/
+cp -r skills/infra-readiness-audit ~/.claude/skills/
+# Cursor
+cp -r skills/live-infra-audit ~/.cursor/skills/
 ```
+
+Works on any [Agent Skills](https://agentskills.io) host. See
+`skills/live-infra-audit/references/PORTABILITY.md` for host-specific notes.
 
 ## Run
 
@@ -42,6 +148,7 @@ audit the live server, read-only                   # live layer (confirms target
 - `docs/CLIENT-ONBOARDING-AWS.md` — screen-by-screen: how the client creates the read-only identity.
 - `docs/CONTEXT-BUDGET.md` — how the audit runs without timeouts and without blowing the agent's context window.
 - `docs/runs/` — real audit reports from our own infrastructure.
+- `skills/live-infra-audit/SKILL.md` — the router; loads only the reference file for the target's platform.
 
 ## License
 
