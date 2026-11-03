@@ -11,7 +11,7 @@
 - An empty state + `plan -refresh-only` returns "No changes" — a false clean bill. Import the key resources first, then judge.
 - google provider 6.x import ID for compute instances must be the full path `projects/<p>/zones/<z>/instances/<name>`; short `zone/name` fails with "non-existent remote object". Provider-level `zone` must be set or imports fail with "Cannot determine zone".
 - Auth for local GCP runs: `export GOOGLE_OAUTH_ACCESS_TOKEN=$(gcloud auth print-access-token)` — no service account needed for read-only audit. For AWS: the access key env vars work directly with the aws provider.
-- Never run `terraform apply` in an audit. Plan and refresh-only are read-only; import writes only local state.
+- Never run `terraform apply` in an audit. Plan and refresh-only are read-only. Import writes state to the configured backend (local file or remote S3/GCS), never touches real infrastructure, but on a remote backend it needs write access to the state bucket. If the client's credentials are read-only, import will fail — fall back to `plan -refresh-only` and mark drift needs_validation.
 
 ## Review order (how to review a client's Terraform)
 
