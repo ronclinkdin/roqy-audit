@@ -100,6 +100,22 @@ These come up when a client runs EKS/GKE behind a VPN. The audit maps the access
 
 These are needs_validation by default: the evidence is the client's own architecture description plus whatever read-only commands their identity allows. Only mark confirmed when you saw the config yourself.
 
+### Kubernetes workload checks (validated on a live GKE canary, 2026-11-03)
+
+Run with kubectl, read-only. EXCLUDE system namespaces (kube-system, kube-public, kube-node-lease, gmp-system, gke-managed*) from workload findings: their pods are privileged/hostPath by design and flagging them drowns the report in false positives. Cover system namespaces with one summary line.
+
+| # | Check | Command | Finding if |
+|---|---|---|---|
+| K7 | Privileged containers | `kubectl get pods -A -o json` filtered to user namespaces, check securityContext.privileged | Any workload pod privileged = container escape path |
+| K8 | hostPath volumes | Same dump, check spec.volumes[].hostPath | hostPath / or /var/run/docker.sock = node takeover |
+| K9 | RBAC over-grant | `kubectl get clusterrolebindings -o json`, list bindings to cluster-admin with ServiceAccount subjects | Workload SA with cluster-admin = the cleaner-with-admin case |
+| K10 | Public exposure | `kubectl get svc -A --field-selector spec.type=LoadBalancer` | LB on an admin/internal panel = internet-reachable |
+| K11 | Image + limits | Same pod dump: image tag :latest or untagged, empty resources.limits | Unpinned images and no limits = OOM and supply-chain risk |
+| K12 | NetworkPolicy | `kubectl get netpol -A` | Zero policies in user namespaces = any pod reaches any pod |
+| K13 | Token automount | Same pod dump: automountServiceAccountToken not false on pods not using the API | Every pod holds a live API token it never uses |
+
+Detection queries (python over `kubectl get pods -A -o json`): iterate containers, flag privileged, hostPath, :latest, missing limits. One pass, one file, under 30 lines of output.
+
 ### What clients ask about most (2026) — add to every audit
 
 | # | Check | Command / question | Finding if |
