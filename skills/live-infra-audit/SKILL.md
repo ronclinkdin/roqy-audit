@@ -57,6 +57,21 @@ Cloud target (only with user-approved read-only identity): run the relevant sect
 
 GCP auth notes: `gcloud auth login --no-launch-browser` prints a URL; the verification code is session-bound (PKCE). A code from a different session or an earlier URL fails with `invalid_grant`. Always generate the URL and paste the code in the same run. Org policies can block `allUsers` bindings (HTTP 412) — that is a compensating control, mark the public-bucket finding `rejected`, not confirmed.
 
+### Terraform / IaC layer (validated on the canary project, 2026-11-03)
+
+| # | Check | Command | Finding if |
+|---|---|---|---|
+| T1 | State exists and is real | `terraform state list` in the client's IaC root | Empty state with live resources = IaC is decoration, everything is console-managed |
+| T2 | Drift | `terraform plan -input=false` after `terraform import` of key resources | Plan shows changes nobody declared = manual console changes |
+| T3 | State security | `ls` the backend config; local state file present? | State on disk unencrypted (contains secrets for some providers), no remote locking |
+
+Validated pitfalls (do not repeat):
+- An empty state + `plan -refresh-only` returns "No changes" — a false clean bill. Always import the key resources first, then judge.
+- google provider 6.x import ID for compute instances must be the full path: `projects/<p>/zones/<z>/instances/<name>`. Short `zone/name` fails with "non-existent remote object".
+- Provider-level `zone` must be set or instance imports fail with "Cannot determine zone".
+- Auth for local runs: `export GOOGLE_OAUTH_ACCESS_TOKEN=$(gcloud auth print-access-token)` — no service account needed for read-only audit.
+- Never run `terraform apply` in an audit. Plan and refresh-only are read-only; import writes only local state.
+
 ## Phase 3: Verify
 
 For each candidate: re-run the command, confirm the evidence is current, look for a compensating control (reverse proxy in front, firewall elsewhere, backup verified elsewhere). Assign confirmed / needs_validation / rejected. Only confirmed get priority.
