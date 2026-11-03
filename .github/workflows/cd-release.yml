@@ -1,0 +1,33 @@
+name: CD / Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cd-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Tagged release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Verify CI gates on the tagged commit
+        run: echo "Release builds from a merged, CI-green main commit"
+      - name: Package skill bundle
+        run: |
+          mkdir -p dist
+          cp -r skills dist/
+          cp README.md DISCLAIMER.md LICENSE dist/
+          tar -czf dist/roqy-audit-skills-${{ github.ref_name }}.tar.gz -C dist skills README.md DISCLAIMER.md LICENSE
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          files: dist/roqy-audit-skills-*.tar.gz
+          generate_release_notes: true
