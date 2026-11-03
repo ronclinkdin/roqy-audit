@@ -8,6 +8,8 @@
 | T4 | Provider / module staleness | `terraform providers` + read required_providers and module sources; check registry for latest | Provider or module pinned to a version with known CVEs, deprecated, or >2 majors behind. Also: unpinned providers (no version constraint) |
 | T5 | Plugin / toolchain EOL | `terraform version`; check tflint/checkov versions if installed | Terraform itself or audit tooling past EOL or with known CVEs |
 
+| T6 | Expiry forecast | Registry check on pinned provider/module versions + deprecation notices | Pinned version deprecated or CVE-announced with fix available = upgrade window closing |
+
 ## Validated pitfalls
 
 - An empty state + `plan -refresh-only` returns "No changes" — a false clean bill. Import the key resources first, then judge.

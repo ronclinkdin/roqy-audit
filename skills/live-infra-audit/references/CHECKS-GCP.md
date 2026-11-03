@@ -24,6 +24,13 @@ Set `CLOUDSDK_CORE_PROJECT` explicitly for compute commands — gcloud silently 
 
 Logs being on by default is not visibility. Always check who reads them (A3) and whether data access is logged (A4).
 
+## Expiry forecast (G7-G8)
+
+| # | Check | Command | Finding if |
+|---|---|---|---|
+| G7 | TLS cert horizon | `gcloud compute ssl-certificates list --format='table(name,expireTime)'` | Any cert <30 days out |
+| G8 | Commitment / spend guard | `gcloud compute commitments list` + billing budget check | Commitments ending <90 days unowned, or LLM API keys with no budget cap |
+
 ## Cloud connection pipeline (verified)
 
 1. Connect: `gcloud auth login --no-launch-browser` in a pty background terminal, feed the browser code with process submit. Verify with `gcloud auth list` — the login can save the token even when gcloud prints a confusing error afterward, so always re-check auth list before retrying.

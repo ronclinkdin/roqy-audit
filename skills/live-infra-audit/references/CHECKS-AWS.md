@@ -1,4 +1,4 @@
-# AWS checks (W1-W16, validated on a live canary account)
+# AWS checks (W1-W23, validated on a live canary account)
 
 | # | Check | Command | Finding if |
 |---|---|---|---|
@@ -32,6 +32,14 @@
 | W18 | EKS version EOL | `aws eks describe-cluster --name <c> --query 'cluster.version'` | Version older than N-1 or past its ~14-month EOL — upgrade window closing, control plane auto-upgrades can break workloads |
 | W19 | EC2 AMI age | `aws ec2 describe-images --owners self --query 'Images[].{id:ImageId,d:CreationDate}'` | AMIs >12 months old = unpatched base images; also check running instances' ImageId against this list |
 | W20 | RDS engine EOL | `aws rds describe-db-engine-versions --engine <e> --query 'DBEngineVersions[].EngineVersion'` | Engine version past its community EOL (MySQL/Postgres majors) = no security patches |
+
+## Expiry forecast (W21-W23: what breaks next, not what is broken now)
+
+| # | Check | Command | Finding if |
+|---|---|---|---|
+| W21 | TLS cert horizon | `aws acm list-certificates` + `describe-certificate --query 'Certificate.NotAfter'` | Any cert <30 days out. Renewal automation already failed if it is this close |
+| W22 | RI / Savings Plan end | `aws ce get-reservation-utilization` + `describe-savings-plans` | Plans ending <90 days with no renewal owner named = bill jump with no warning |
+| W23 | AI/LLM spend guard | `aws bedrock list-invocations`-style usage + check for cost anomaly detector | Bedrock/OpenAI keys with no spend cap or anomaly detection = one leaked key is an unlimited bill |
 
 ## Lessons (validated)
 
