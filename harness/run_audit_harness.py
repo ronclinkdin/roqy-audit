@@ -22,6 +22,7 @@ from pathlib import Path
 
 CANARY_SECRETS = ["FAKE-DB-PASSWORD=not-a-real-secret"]
 EXPECTED_CANARY = ["firewall", "editor", "budget"]
+EXPECTED_CANARY_AWS = ["openai-credentials", "authusers", "snapshot", "rotation", "security group"]
 VALID_STATUS = {"confirmed", "needs_validation", "rejected"}
 VALID_PRIORITY = {"P0", "P1", "P2", None}
 
@@ -77,9 +78,10 @@ def validate(run_dir: Path) -> bool:
             ok &= check("findings.json parses", False, str(e))
 
     # canary coverage: planted findings must appear in the report text
-    if "canary" in str(run_dir):
+    if "canary" in str(run_dir) or "harness" in str(run_dir):
         low = text.lower()
-        missing_cov = [k for k in EXPECTED_CANARY if k not in low]
+        expected = EXPECTED_CANARY_AWS if "aws" in str(run_dir) else EXPECTED_CANARY
+        missing_cov = [k for k in expected if k not in low]
         ok &= check("canary planted findings covered", not missing_cov, str(missing_cov))
 
     # skill coverage: the report should touch the check families the skill defines
