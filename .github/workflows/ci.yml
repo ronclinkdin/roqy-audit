@@ -33,6 +33,7 @@ jobs:
 
   dependency-review:
     name: Dependency review
+    if: github.event_name == 'pull_request'
     uses: ./.github/workflows/ci-dependency-review.yml
 
   md-agent-safety:
