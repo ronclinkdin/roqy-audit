@@ -1,0 +1,37 @@
+# CI entry point: one file that calls every check as a reusable workflow.
+# Runs on every PR (pre-merge) and on non-main branch pushes.
+# Branch protection on main requires all five jobs green before merge.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches-ignore: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python syntax + harness smoke
+    uses: ./.github/workflows/ci-python.yml
+
+  secrets:
+    name: Secrets (gitleaks)
+    uses: ./.github/workflows/ci-secrets.yml
+
+  workflow-security:
+    name: Workflow security (zizmor)
+    uses: ./.github/workflows/ci-workflow-security.yml
+
+  dependency-review:
+    name: Dependency review
+    uses: ./.github/workflows/ci-dependency-review.yml
+
+  md-agent-safety:
+    name: Markdown agent-safety scan
+    uses: ./.github/workflows/ci-md-safety.yml
