@@ -44,6 +44,19 @@ Run and record:
 
 Cloud target (only with user-approved read-only identity): run the relevant sections of infra-readiness-audit CHECKS.md live (public buckets, security groups 0.0.0.0/0, unencrypted RDS, no backups, IAM keys >90d).
 
+### GCP checks (validated on a live canary project, 2026-11-03)
+
+| # | Check | Command | Finding if |
+|---|---|---|---|
+| G1 | Open firewall | `gcloud compute firewall-rules list --format='table(name,sourceRanges.list(),allowed[].map().firewall_rule().list())'` | Any rule with 0.0.0.0/0 allowing tcp:22/3389 or management ports |
+| G2 | Over-privileged SA + exported keys | `gcloud projects get-iam-policy $P --format='value(bindings.role,bindings.members)'` + `gcloud iam service-accounts keys list --iam-account=<sa>` | SA with roles/editor or roles/owner AND a user-managed key |
+| G3 | VM scopes | `gcloud compute instances describe <vm> --zone=<z> --format='value(serviceAccounts[0].scopes)'` | cloud-platform scope on a running VM |
+| G4 | Budget alert | `gcloud billing budgets list --billing-account=<id>` | API disabled or zero budgets |
+| G5 | Disk backups | `gcloud compute resource-policies list` | No snapshot schedule policies |
+| G6 | Public buckets | `gcloud storage buckets list` + attempt `add-iam-policy-binding --member=allUsers` is NOT allowed (write). Instead: `curl -s -o /dev/null -w '%{http_code}' https://storage.googleapis.com/<bucket>/<object>` | 200 on an object that should be private |
+
+GCP auth notes: `gcloud auth login --no-launch-browser` prints a URL; the verification code is session-bound (PKCE). A code from a different session or an earlier URL fails with `invalid_grant`. Always generate the URL and paste the code in the same run. Org policies can block `allUsers` bindings (HTTP 412) — that is a compensating control, mark the public-bucket finding `rejected`, not confirmed.
+
 ## Phase 3: Verify
 
 For each candidate: re-run the command, confirm the evidence is current, look for a compensating control (reverse proxy in front, firewall elsewhere, backup verified elsewhere). Assign confirmed / needs_validation / rejected. Only confirmed get priority.
