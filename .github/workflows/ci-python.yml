@@ -1,16 +1,11 @@
 name: CI / Python
 
 on:
-  pull_request:
-  push:
-    branches-ignore: [main]
+  workflow_call:
 
 permissions:
   contents: read
 
-concurrency:
-  group: ci-python-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   python:

@@ -1,16 +1,11 @@
 name: CI / Markdown Agent Safety
 
 on:
-  pull_request:
-  push:
-    branches-ignore: [main]
+  workflow_call:
 
 permissions:
   contents: read
 
-concurrency:
-  group: ci-md-safety-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   md-safety:

@@ -1,14 +1,11 @@
 name: CI / Dependency Review
 
 on:
-  pull_request:
+  workflow_call:
 
 permissions:
   contents: read
 
-concurrency:
-  group: ci-dep-review-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   dependency-review:
