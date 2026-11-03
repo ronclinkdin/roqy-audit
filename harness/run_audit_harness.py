@@ -46,9 +46,13 @@ def validate(run_dir: Path) -> bool:
     text = report.read_text()
     ok &= check("report under 120 lines", len(text.splitlines()) <= 120, f"{len(text.splitlines())} lines")
 
-    # verdict hygiene: headings must not invent statuses
-    bad_verdicts = re.findall(r"### .*?\(([^)]*)\)", text)
-    bad = [v for v in bad_verdicts if not any(s in v.upper() for s in ("CONFIRMED", "NEEDS_VALIDATION", "NEEDS VALIDATION", "REJECTED"))]
+    # verdict hygiene: every finding heading must contain a valid verdict anywhere
+    bad = []
+    for line in text.splitlines():
+        if line.startswith("### ") and ("—" in line or "(" in line):
+            up = line.upper()
+            if not any(s in up for s in ("CONFIRMED", "NEEDS_VALIDATION", "NEEDS VALIDATION", "REJECTED", "NOT_APPLICABLE")):
+                bad.append(line[:60])
     ok &= check("no invented verdicts in headings", not bad, str(bad))
 
     leaked = [s for s in CANARY_SECRETS if s in text]
