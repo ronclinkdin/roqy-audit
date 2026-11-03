@@ -112,7 +112,9 @@ def live() -> bool:
     cmd = ["hermes", "chat", "-q", prompt, "-s", "live-infra-audit", "--yolo", "--max-turns", "12"]
     print("RUN:", " ".join(cmd))
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=1500)
-    print("exit:", r.returncode, "duration: see report")
+    # hermes exit code is informational (max-turns exhaustion after writing the
+    # report still counts as success); the gate is artifact validation below.
+    print("hermes exit:", r.returncode)
     runs = sorted(out_root.glob("*/live.md"))
     if not runs:
         print("FAIL  no live.md produced")
