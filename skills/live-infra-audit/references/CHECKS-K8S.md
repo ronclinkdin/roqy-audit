@@ -36,6 +36,14 @@ Map the access path before judging. needs_validation by default; confirmed only 
 | K14 | Cluster version EOL | `kubectl version` + EKS/GKE EOL table | Cluster version past or within 60 days of EOL — auto-upgrade can break workloads |
 | K15 | Controller / chart staleness | `helm list -A` + `kubectl get apiservices` | cert-manager, ingress-nginx, external-secrets on deprecated APIs or >2 minors behind |
 
+## One-line killers (K16-K18)
+
+| # | Check | Command | Finding if |
+|---|---|---|---|
+| K16 | system:authenticated binding | `kubectl get clusterrolebindings -o json \| jq '.items[] \| select(.subjects[]?.kind=="Group" and .subjects[]?.name=="system:authenticated")'` | Any token holder is effectively cluster-admin |
+| K17 | kubelet read-only port | `kubectl get nodes -o wide` then `curl http://<node-ip>:10255/pods` | 200 = anonymous read of every pod and its env, no auth |
+| K18 | Dashboard skip-login | `kubectl get deploy -A \| grep dashboard` + check args for `--enable-skip-login` | Admin panel open to anyone who reaches the URL |
+
 ## Planted-case validation record (GKE canary)
 
 All detected: privileged pod + hostPath /, LoadBalancer on admin panel, cluster-admin to default SA, :latest without limits, zero NetworkPolicy. GKE default state: kube-system pods are privileged by design (excluded), no netpol (finding), public endpoint default.

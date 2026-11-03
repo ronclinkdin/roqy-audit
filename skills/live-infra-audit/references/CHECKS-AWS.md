@@ -1,4 +1,4 @@
-# AWS checks (W1-W23, validated on a live canary account)
+# AWS checks (W1-W23, one-line killers W24-W32, evidence-based W33-W41)
 
 | # | Check | Command | Finding if |
 |---|---|---|---|
@@ -40,6 +40,37 @@
 | W21 | TLS cert horizon | `aws acm list-certificates` + `describe-certificate --query 'Certificate.NotAfter'` | Any cert <30 days out. Renewal automation already failed if it is this close |
 | W22 | RI / Savings Plan end | `aws ce get-reservation-utilization` + `describe-savings-plans` | Plans ending <90 days with no renewal owner named = bill jump with no warning |
 | W23 | AI/LLM spend guard | `aws bedrock list-invocations`-style usage + check for cost anomaly detector | Bedrock/OpenAI keys with no spend cap or anomaly detection = one leaked key is an unlimited bill |
+
+## One-line killers (W24-W32: the smallest config lines with the biggest damage)
+
+| # | Check | Command | Finding if |
+|---|---|---|---|
+| W24 | PassRole on `*` | `aws iam list-attached-role-policies` + `get-policy-version` on every attached policy; grep for `iam:PassRole` with Resource `*` | Any principal can assume any role in the account = user-to-admin escalation primitive |
+| W25 | NotAction policies | grep all policy documents for `NotAction` | "Everything except X" usually grants everything. Read what it actually allows |
+| W26 | Cross-account KMS/Secrets policy | `aws kms list-keys` + `get-key-policy`; `aws secretsmanager list-secrets` + `get-resource-policy` | External account in a decrypt/get policy = all secrets behind it, no IAM touch needed |
+| W27 | S3 notification to external account | `aws s3api get-bucket-notification-configuration --bucket <b>` | Lambda/queue/topic ARN owned by another account = silent exfiltration channel |
+| W28 | SSM Session Manager logging | `aws ssm describe-document-permissions` + account SSM preferences | Session preferences without KMS encryption or CloudWatch/S3 logging = unattributed shell on every instance |
+| W29 | CloudTrail single-region | `aws cloudtrail describe-trails --query 'trailList[].IsMultiRegionTrail'` | False = half the world's events unlogged |
+| W30 | ECR public pull | `aws ecr describe-repositories` + `get-repository-policy` | `*` principal with pull = your images (and baked secrets) are world-readable |
+| W31 | Confused deputy (no ExternalId) | read every cross-account trust policy for a missing `Condition: sts:ExternalId` | Partner role assumable by anyone inside the trusted account |
+| W32 | Account-level EBS encryption | `aws ec2 get-ebs-encryption-by-default` | False = every future volume born unencrypted |
+
+## Evidence-based checks (W33-W37: patterns from real breach data)
+
+Sources: ramimac/aws-customer-security-incidents (2014-2024) + Datadog Security Labs + 2026 incidents: Sysdig TRT (AI-assisted 8-minute admin), Truffle Security (9,300 live exposed keys incl. 526 root), Arup/FulcrumSec, European Commission (Trivy supply chain), Beacon, Dow Jones (UpGuard).
+
+| # | Check | Command | Finding if | Real precedent |
+|---|---|---|---|---|
+| W33 | S3 global write | read every bucket policy for `s3:PutObject` with Principal `*` | Anyone on the internet can plant files in your bucket. LA Times 2018, Twilio 2020, PREMINT 2022 all started here |
+| W34 | Shared snapshots | `aws ec2 describe-snapshots --owner-ids self --query 'Snapshots[].{id:SnapshotId,perm:CreateVolumePermissions}'` + same for RDS | Snapshot shared to another account or all = full disk copy with baked secrets. Imperva 2019 (RDS snapshot stolen), DNC 2016 (EC2 snapshots copied) |
+| W35 | ECS exposure | `aws ecs list-clusters` + `describe-task-definition` per task: check for public ports, `aws ecs describe-services` | Task with exposed port = cryptojacking entry. Datadog 2024: "ECS is the new EC2 for crypto mining" |
+| W36 | SES abuse guard | `aws sesv2 list-account-details` (production access, sending limits) + `list-identities` | Production SES with no sending limit review = stolen key sends phishing as your domain. Kaspersky 2021, Rapid7 2024 |
+| W37 | Secrets rotation | `aws secretsmanager list-secrets --query 'SecretList[].{n:Name,r:RotationEnabled}'` | RotationEnabled=false on secrets older than 90 days. FTX 2022: private keys in Secrets Manager, no rotation, no HSM |
+
+| W38 | AuthenticatedUsers grants | read bucket policies/ACLs for grants to `AuthenticatedUsers` or `http://acs.amazonaws.com/groups/global/AuthenticatedUsers` | "Not public" but open to every AWS account holder. Dow Jones 2026: 2.2M customers via exactly this |
+| W39 | Secrets in public build artifacts | scan public JS bundles/sourcemaps/build dirs for `AKIA`, `sk-`, PATs | Hardcoded token in a shipped artifact = repo access, then cloud access. Arup 2026 (PAT on forgotten subdomain -> 10k repos), Beacon 2026 (key in JS build -> full DB copy) |
+| W40 | Root access keys exist | `aws iam get-account-summary --query 'SummaryMap.AccountAccessKeysPresent'` | 1 = a root key exists anywhere. Truffle 2026 found 526 live root keys in the wild. Delete all root keys, use roles |
+| W41 | AI-named buckets | `aws s3 ls \| grep -iE 'openai\|llm\|gpt\|bedrock\|ai-\|-ai\|ml-\|model'` | Sysdig 2026: attackers grep for AI-tool naming conventions to find credential buckets fast |
 
 ## Lessons (validated)
 
