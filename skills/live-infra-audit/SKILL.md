@@ -26,6 +26,8 @@ Audit what is actually running, not what the repo claims. Read-only always. Outp
 | Terraform/IaC present | `references/CHECKS-IAC.md` |
 | Any client audit | `references/CHECKS-CLIENT.md` (interview checks, always include) |
 
+Always load: `references/RECONNAISSANCE.md` (phase 1) and `references/VALIDATION-AND-REPORTING.md` (phase 3). Canary work adds `references/CANARY-VALIDATION.md`.
+
 Never load all files at once — that is how the context floods. One target, its file, plus CHECKS-CLIENT.md.
 
 ## Procedure
@@ -39,6 +41,8 @@ Run together: `hostname; uname -r; uptime`; `docker ps --format '{{.Names}}\t{{.
 Run the checks from the loaded reference file(s). For a cloud target, the IaC and audit-log sections are MANDATORY, not optional: run them even if the client did not mention IaC. If a section's tool is missing, state `not_applicable: <reason>` in the report instead of skipping silently.
 
 ### Phase 3: Verify then report
+
+Full rules in `references/VALIDATION-AND-REPORTING.md`. Summary:
 
 Verdicts are a closed set: `confirmed`, `needs_validation`, `rejected`. No other words exist — `partial`, `clean`, `ok`, `warning` are forbidden in headings and findings. If you cannot classify, the verdict is `needs_validation`. Agents left free will invent verdict words; the regression harness rejects them, so never write them.
 
@@ -73,13 +77,11 @@ A 200-container host or a 50-project org can flood the context and kill the run.
 
 ## Canary validation pattern
 
-To validate the audit skill itself: build a deliberately dirty throwaway environment, run the full audit, and confirm every planted issue is detected AND that compensating controls get findings rejected, not confirmed. A clean sandbox only proves the pipeline. After a canary run, fold the exact working commands into the relevant reference file immediately — that is the moment the commands are freshest and proven. Delete exported canary keys from disk when done.
-
-Provisioning canaries (when the audit needs a throwaway environment): see `references/CHECKS-IAC.md` (Terraform pitfalls) and `references/CHECKS-AWS.md` (IAM/EKS setup lessons).
+Full pattern and provisioning lessons in `references/CANARY-VALIDATION.md`. Summary: build a deliberately dirty throwaway environment, run the full audit, confirm every planted issue is detected AND compensating controls get findings rejected, not confirmed. A clean sandbox only proves the pipeline. After a canary run, fold the exact working commands into the relevant reference file immediately. Delete exported canary keys from disk when done.
 
 ## Regression harness
 
-The audit output validator lives at /root/roqy-audit/harness/run_audit_harness.py; per-target scenario runner at /root/roqy-audit/harness/run_scenarios.py (repo / vps / gcp scenarios, gke opt-in). `validate <dir>` checks a run's artifacts (report exists, under 120 lines, no secret/token leaks, findings.json schema, priority only on confirmed, planted-finding coverage, per-family keyword coverage as WARN for old reports). `live` runs the skill end-to-end via `hermes chat -s live-infra-audit --yolo` against the canary project and validates the output. Run it after every skill change — it caught a priority-on-needs_validation violation and an invented-verdict heading on its first passes. Gate on artifact validation, not on the hermes process exit code: max-turns exhaustion after the report is written still counts as success. Keep the repo copy and this profile copy of the skill in sync (cp after every edit).
+Full details in `references/VALIDATION-AND-REPORTING.md`. The audit output validator lives at /root/roqy-audit/harness/run_audit_harness.py; per-target scenario runner at /root/roqy-audit/harness/run_scenarios.py (repo / vps / gcp scenarios, gke opt-in). Run it after every skill change — it caught a priority-on-needs_validation violation and an invented-verdict heading on its first passes. Gate on artifact validation, not on the hermes process exit code. Keep the repo copy and this profile copy of the skill in sync (cp after every edit).
 
 ## Deliverable packaging
 
