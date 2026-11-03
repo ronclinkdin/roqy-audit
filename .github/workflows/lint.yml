@@ -1,0 +1,24 @@
+name: Lint
+
+on:
+  pull_request:
+  push:
+    branches-ignore: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  python-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Syntax check all python files
+        run: |
+          find . -name '*.py' -not -path './node_modules/*' | xargs -n1 python3 -m py_compile
+      - name: Harness self-test (validate existing artifacts shape)
+        run: |
+          python3 harness/run_audit_harness.py 2>&1 | head -3
