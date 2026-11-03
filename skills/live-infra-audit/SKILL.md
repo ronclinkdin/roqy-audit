@@ -1,6 +1,13 @@
 ---
 name: live-infra-audit
-description: "Use when auditing a live VPS or cloud host, read-only. Docker/VPS, GCP, AWS, Terraform, audit logs, K8s/VPN access, scale guards, regression harness. Checks live in references/ — load only the file for the target's platform."
+version: "1.1.0"
+description: "Use when auditing a live VPS or cloud host, read-only."
+author: roqy.io
+license: MIT
+metadata:
+  hermes:
+    tags: [audit, devops, cloud, security]
+    related_skills: [infra-readiness-audit, security-audit-run, vps-docker-operations]
 ---
 
 # Live Infra Audit
@@ -26,7 +33,7 @@ Audit what is actually running, not what the repo claims. Read-only always. Outp
 | Terraform/IaC present | `references/CHECKS-IAC.md` |
 | Any client audit | `references/CHECKS-CLIENT.md` (interview checks, always include) |
 
-Always load: `references/RECONNAISSANCE.md` (phase 1) and `references/VALIDATION-AND-REPORTING.md` (phase 3). Canary work adds `references/CANARY-VALIDATION.md`.
+Always load: `references/RECONNAISSANCE.md` (phase 1) and `references/VALIDATION-AND-REPORTING.md` (phase 3). Canary work adds `references/CANARY-VALIDATION.md`. Running the skill on a non-Hermes host (Claude Code, Cursor) or adapting checks: `references/PORTABILITY.md`.
 
 Never load all files at once — that is how the context floods. One target, its file, plus CHECKS-CLIENT.md.
 
