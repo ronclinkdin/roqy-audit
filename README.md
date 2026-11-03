@@ -4,6 +4,11 @@ Read-only infrastructure audit toolkit for startups without a DevOps engineer.
 Built and battle-tested by [roqy.io](https://roqy.io) on our own stack first:
 every check in this repo was run against a live environment before it landed here.
 
+roqy.io is the DevOps-as-a-service arm behind this project: one senior
+engineer plus a platform, for 1-100 person startups. If you want this audit
+run against your infrastructure by the people who built it:
+[roqy.io](https://roqy.io).
+
 Three layers, one report:
 
 | Layer | Tool | What it checks |
@@ -152,4 +157,4 @@ audit the live server, read-only                   # live layer (confirms target
 
 ## License
 
-MIT
+MIT. See also [DISCLAIMER.md](DISCLAIMER.md): no warranty, read-only caveats, agent-use warnings, and the audit-not-audit clause.
