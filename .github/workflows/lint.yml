@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches-ignore: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: Python syntax + harness smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Syntax check all python files
+        run: find . -name '*.py' | xargs -n1 python3 -m py_compile
+      - name: Harness smoke (usage output, no crash)
+        run: python3 harness/run_audit_harness.py 2>&1 | head -3
+
+  secrets:
+    name: Secret pattern scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Scan for credential patterns in tracked files
+        run: |
+          ! grep -rInE \
+            '(AKIA[0-9A-Z]{16}|-----BEGIN (RSA|EC|OPENSSH|PGP) PRIVATE KEY|ghp_[A-Za-z0-9]{36}|sk-[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{35}|xox[bap]-[A-Za-z0-9-]{10,})' \
+            --exclude-dir=.git .
+
+  md-agent-safety:
+    name: Markdown agent-safety scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan skill/report markdown for prompt-injection and destructive patterns
+        run: |
+          ! grep -rInE \
+            '(ignore (all )?(previous|prior) instructions|disregard (all|your) instructions|you are now|act as (if|an)|system prompt|exfiltrate|curl[^|]*\|[[:space:]]*(ba)?sh|wget[^|]*\|[[:space:]]*(ba)?sh|base64[[:space:]]+-d[[:space:]].*\|[[:space:]]*(ba)?sh|rm[[:space:]]+-rf[[:space:]]+/|chmod[[:space:]]+777[[:space:]]+/)' \
+            --include='*.md' .
+      - name: Scan markdown for unexpected external URLs
+        run: |
+          ! grep -rIhoE 'https?://[a-zA-Z0-9./_-]+' --include='*.md' . \
+            | grep -vE 'github.com|roqy.io|agentskills.io|cloudflare|floci-io|storage.googleapis.com|monitoring.googleapis.com|amazonaws.com|<'
