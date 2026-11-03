@@ -33,7 +33,7 @@ Audit what is actually running, not what the repo claims. Read-only always. Outp
 | Terraform/IaC present | `references/CHECKS-IAC.md` |
 | Any client audit | `references/CHECKS-CLIENT.md` (interview checks, always include) |
 
-Always load: `references/RECONNAISSANCE.md` (phase 1) and `references/VALIDATION-AND-REPORTING.md` (phase 3). Canary work adds `references/CANARY-VALIDATION.md`. Running the skill on a non-Hermes host (Claude Code, Cursor) or adapting checks: `references/PORTABILITY.md`.
+Always load: `references/RECONNAISSANCE.md` (phase 1) and `references/VALIDATION-AND-REPORTING.md` (phase 3). Canary work adds `references/CANARY-VALIDATION.md`. Running the skill on a non-Hermes host (Claude Code, Cursor) or adapting checks: `references/PORTABILITY.md`. When the report's fixes include repo CI/CD gates and secret hygiene, the exact fix list is `references/REPO-HARDENING.md`.
 
 Never load all files at once — that is how the context floods. One target, its file, plus CHECKS-CLIENT.md.
 
