@@ -83,6 +83,21 @@ Validated pitfalls (do not repeat):
 
 Validated on the canary: A1/A2 pass (firewall patch attributed to ronco@roqy.io), A3 fails (zero alert policies), A4 fails (no data access logs). The distinction matters: logs are on by default in GCP, watching them is not.
 
+### Access architecture (Kubernetes / private environments) — discovery questions, not commands
+
+These come up when a client runs EKS/GKE behind a VPN. The audit maps the access path before judging it. Ask, then verify against what they show:
+
+| # | Question | Finding if |
+|---|---|---|
+| K1 | Is the cluster API endpoint public or private? `aws eks describe-cluster --name <c> --query 'cluster.endpoint'` + endpointPublicAccess | Public API with broad CIDR allowlist = internet-reachable control plane |
+| K2 | How does CI/CD reach the private cluster? | Long-lived kubeconfig on a runner, or credentials in CI variables = static secret in the deploy path. Correct pattern: in-VPC runner, OIDC role, or GitOps pull (ArgoCD/Flux) |
+| K3 | How do external vendors get access? | Shared VPN accounts or shared kubeconfig = no attribution, no revocation. Correct: per-person temporary IAM role + SSM Session Manager, no open ports |
+| K4 | Is the VPN cloud-native or third-party? | Third-party VPN is acceptable but check: manual route tables, no SG references, no MFA on the VPN itself |
+| K5 | Who has cluster-admin? `kubectl get clusterrolebindings` (read-only) | More than 2-3 humans with cluster-admin, or a vendor with it |
+| K6 | Jenkins or equivalent legacy CI with prod credentials? | Jenkins master with static cloud keys = single compromised box owns prod. Migration path: GitOps + ephemeral runners |
+
+These are needs_validation by default: the evidence is the client's own architecture description plus whatever read-only commands their identity allows. Only mark confirmed when you saw the config yourself.
+
 ## Scale guard (large environments)
 
 A 200-container host or a 50-project org can flood the context and kill the run. These rules are mandatory, not optional.
