@@ -28,6 +28,7 @@ jobs:
     name: Workflow security (zizmor)
     uses: ./.github/workflows/ci-workflow-security.yml
     permissions:
+      contents: read
       security-events: write
 
   dependency-review:
