@@ -98,6 +98,19 @@ These come up when a client runs EKS/GKE behind a VPN. The audit maps the access
 
 These are needs_validation by default: the evidence is the client's own architecture description plus whatever read-only commands their identity allows. Only mark confirmed when you saw the config yourself.
 
+### What clients ask about most (2026) — add to every audit
+
+| # | Check | Command / question | Finding if |
+|---|---|---|---|
+| X1 | AI/LLM key sprawl | `grep -rn "sk-\|AIza\|ghp_" --include="*.env*" .` (names only), ask: who pays for OpenAI/Anthropic keys, are they per-person or shared? | Shared company key in a .env, no per-service keys, no spend caps. One leaked key = unlimited bill |
+| X2 | Bus factor / offboarding | Ask: if the one person who knows the deploy left tomorrow, what breaks? List what only they hold (VPN certs, cloud console access, cron jobs on a personal account) | Critical paths held by one person, no offboarding checklist |
+| X3 | PII in logs | Ask + sample: are request bodies, emails, or tokens written to app logs or third-party loggers (Sentry, Umami, CloudWatch)? | Customer data in logs with 30-90 day retention = a breach that already happened, just not discovered |
+| X4 | Dependency supply chain | `npm audit --omit=dev 2>/dev/null \| tail -3`, check lockfile age, ask about Dependabot/Renovate | Lockfile untouched for months, no automated updates, prod running on EOL runtime |
+| X5 | Secrets rotation | Ask: when was each cloud key last rotated? Check `aws iam list-access-keys` / GCP key `validAfterTime` | Keys older than 90 days, no rotation policy |
+| X6 | Domain/DNS blast radius | `dig NS <domain>`, ask: where is DNS hosted, is 2FA on the registrar, who else has access? | Registrar account shared or without 2FA. A hijacked DNS beats every other finding |
+
+X1 is the one that lands hardest with 2026 clients: everyone has AI keys, almost nobody governs them. Lead with it in the pitch.
+
 ## Scale guard (large environments)
 
 A 200-container host or a 50-project org can flood the context and kill the run. These rules are mandatory, not optional.
