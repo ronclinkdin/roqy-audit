@@ -29,6 +29,8 @@ Run and record:
 
 ## Phase 2: Checks
 
+For a cloud target, the Terraform/IaC section and the Audit logs section are MANDATORY, not optional: run them even if the client did not mention IaC. Do not invent verdicts: only `confirmed`, `needs_validation`, `rejected` exist. If evidence is incomplete, use `needs_validation`, never a new word like `partial`.
+
 | # | Check | Command | Finding if |
 |---|---|---|---|
 | L1 | Public ports | `ss -tlnp` | Service bound to 0.0.0.0 that should be 127.0.0.1 (DB, admin UI, unauthenticated API) |

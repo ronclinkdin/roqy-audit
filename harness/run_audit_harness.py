@@ -46,6 +46,11 @@ def validate(run_dir: Path) -> bool:
     text = report.read_text()
     ok &= check("report under 120 lines", len(text.splitlines()) <= 120, f"{len(text.splitlines())} lines")
 
+    # verdict hygiene: headings must not invent statuses
+    bad_verdicts = re.findall(r"### .*?\(([^)]*)\)", text)
+    bad = [v for v in bad_verdicts if not any(s in v.upper() for s in ("CONFIRMED", "NEEDS_VALIDATION", "NEEDS VALIDATION", "REJECTED"))]
+    ok &= check("no invented verdicts in headings", not bad, str(bad))
+
     leaked = [s for s in CANARY_SECRETS if s in text]
     ok &= check("no canary secret values in report", not leaked, str(leaked))
     tokens = re.findall(r"[A-Za-z0-9_\-]{40,}", text)
@@ -72,6 +77,24 @@ def validate(run_dir: Path) -> bool:
         low = text.lower()
         missing_cov = [k for k in EXPECTED_CANARY if k not in low]
         ok &= check("canary planted findings covered", not missing_cov, str(missing_cov))
+
+    # skill coverage: the report should touch the check families the skill defines
+    families = {
+        "docker/vps (L)": ["port", "tls", "backup", "restart", "disk"],
+        "gcp (G)": ["firewall", "service account", "scope", "budget", "snapshot"],
+        "terraform (T)": ["state", "drift", "import"],
+        "audit logs (A)": ["activity", "alert", "data access"],
+        "access arch (K)": ["endpoint", "ci/cd", "vendor", "cluster-admin"],
+        "client favorites (X)": ["ai", "bus factor", "pii", "rotation", "dns"],
+    }
+    low = text.lower()
+    for fam, keys in families.items():
+        hits = sum(1 for k in keys if k in low)
+        # advisory: old reports predate newer skill sections; live runs must cover
+        if hits >= 2:
+            print(f"PASS  family coverage {fam}  [{hits}/{len(keys)} keywords]")
+        else:
+            print(f"WARN  family coverage {fam}  [{hits}/{len(keys)} keywords] (report may predate skill section)")
     return ok
 
 
