@@ -83,6 +83,18 @@ Validated pitfalls (do not repeat):
 
 Validated on the canary: A1/A2 pass (firewall patch attributed to ronco@roqy.io), A3 fails (zero alert policies), A4 fails (no data access logs). The distinction matters: logs are on by default in GCP, watching them is not.
 
+## Scale guard (large environments)
+
+A 200-container host or a 50-project org can flood the context and kill the run. These rules are mandatory, not optional.
+
+1. **Count before you list.** Every listing command runs twice: first `| wc -l` (or `--format='value(name)' | wc -l`), then the actual query with `--limit`. If the count is over 50, sample: top 20 by relevance plus the count in the report. Never pull a full listing into the conversation.
+2. **One phase per tool call.** Recon, checks, verify, report are separate calls. A timeout loses one phase; files on disk are the resume point. Never chain phases in one command.
+3. **Raw output goes to files, not to the conversation.** `~/infra-readiness-audit/<target>/<date>/raw/`. The report cites file paths plus the key lines. The conversation holds only distilled findings.
+4. **Hard caps per command.** `--limit 20` on cloud list calls, `head -20` on docker/ss/df output, `-m 5` on every curl, `ConnectTimeout=15` on every openssl. A hung check is killed, marked `needs_validation`, and the run continues.
+5. **Per-resource fan-out is bounded.** Auditing N VMs: audit at most 10, chosen by exposure (public IP first), and state the sampling in the report. Never loop over all resources in one call.
+6. **Resume protocol.** `ls ~/infra-readiness-audit/<target>/<date>/` shows which phases exist. Re-run only the missing phase. findings.json is the source of truth; the report is generated from it last.
+7. **Crash test before a big run.** On a target with more than 100 resources, run Phase 1 recon alone first. If the recon output fits (under ~200 lines distilled), proceed. If not, split the target by project/zone and audit in slices.
+
 ## Phase 3: Verify
 
 For each candidate: re-run the command, confirm the evidence is current, look for a compensating control (reverse proxy in front, firewall elsewhere, backup verified elsewhere). Assign confirmed / needs_validation / rejected. Only confirmed get priority.
