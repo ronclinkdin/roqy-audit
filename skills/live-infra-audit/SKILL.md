@@ -72,6 +72,17 @@ Validated pitfalls (do not repeat):
 - Auth for local runs: `export GOOGLE_OAUTH_ACCESS_TOKEN=$(gcloud auth print-access-token)` — no service account needed for read-only audit.
 - Never run `terraform apply` in an audit. Plan and refresh-only are read-only; import writes only local state.
 
+### Audit logs and change visibility (GCP, validated 2026-11-03)
+
+| # | Check | Command | Finding if |
+|---|---|---|---|
+| A1 | Admin activity trail works | `gcloud logging read 'logName:"cloudaudit.googleapis.com%2Factivity" AND timestamp>="<recent>"' --limit=5 --format='value(protoPayload.methodName,timestamp)'` | Empty = changes are invisible |
+| A2 | Attribution | Same query with `--format='value(protoPayload.authenticationInfo.principalEmail)'` | Entries with no principal = shared/service accounts hide who did what |
+| A3 | Log export/alerting | `gcloud logging sinks list` + `curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" 'https://monitoring.googleapis.com/v3/projects/<p>/alertPolicies'` | Only the default _Required sink and empty alertPolicies = logs exist but nobody is watching |
+| A4 | Data access logs | `gcloud logging read 'logName:"cloudaudit.googleapis.com%2Fdata_access"' --limit=1` | Empty = data access (bucket reads, secret reads) is not logged. Default OFF in GCP |
+
+Validated on the canary: A1/A2 pass (firewall patch attributed to ronco@roqy.io), A3 fails (zero alert policies), A4 fails (no data access logs). The distinction matters: logs are on by default in GCP, watching them is not.
+
 ## Phase 3: Verify
 
 For each candidate: re-run the command, confirm the evidence is current, look for a compensating control (reverse proxy in front, firewall elsewhere, backup verified elsewhere). Assign confirmed / needs_validation / rejected. Only confirmed get priority.
