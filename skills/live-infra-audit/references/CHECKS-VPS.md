@@ -13,3 +13,11 @@
 | L9 | SSH | `grep -E '^(PermitRootLogin\|PasswordAuthentication)' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*` | Password auth on or root password login |
 
 Validated lessons: NPM admin UI on port 81 was publicly reachable while the repo looked clean; empty backup directories behind a healthy-looking cron were P0; sshd overrides live in /etc/ssh/sshd_config.d/50-cloud-init.conf.
+
+
+## Expiry forecast (L10-L11)
+
+| # | Check | Command | Finding if |
+|---|---|---|---|
+| L10 | TLS cert horizon | `openssl s_client -connect <host>:443 -servername <host> \| openssl x509 -noout -enddate` | Any cert <30 days out (Let's Encrypt 90-day certs: renewal already broken) |
+| L11 | OS EOL | `cat /etc/os-release` | Base OS past or within 6 months of LTS EOL |

@@ -29,6 +29,13 @@ Map the access path before judging. needs_validation by default; confirmed only 
 | K5 | Who has cluster-admin? (`kubectl get clusterrolebindings`, read-only) | More than 2-3 humans, or a vendor |
 | K6 | Jenkins or legacy CI with prod credentials? | Jenkins master with static cloud keys = one compromised box owns prod. Migration path: GitOps + ephemeral runners |
 
+## Expiry forecast (K14-K15)
+
+| # | Check | Command | Finding if |
+|---|---|---|---|
+| K14 | Cluster version EOL | `kubectl version` + EKS/GKE EOL table | Cluster version past or within 60 days of EOL — auto-upgrade can break workloads |
+| K15 | Controller / chart staleness | `helm list -A` + `kubectl get apiservices` | cert-manager, ingress-nginx, external-secrets on deprecated APIs or >2 minors behind |
+
 ## Planted-case validation record (GKE canary)
 
 All detected: privileged pod + hostPath /, LoadBalancer on admin panel, cluster-admin to default SA, :latest without limits, zero NetworkPolicy. GKE default state: kube-system pods are privileged by design (excluded), no netpol (finding), public endpoint default.

@@ -10,3 +10,12 @@
 | X6 | Domain/DNS blast radius | `dig NS <domain>`; ask about registrar 2FA and who has access | Shared or 2FA-less registrar account. A hijacked DNS beats every other finding |
 
 X1 lands hardest with 2026 clients: everyone has AI keys, almost nobody governs them. Lead with it in the pitch.
+
+
+## Architecture questions (X7-X9: what scanners cannot see)
+
+| # | Check | Finding if |
+|---|---|---|
+| X7 | Restore test | Backups exist but no successful restore in 90 days, or nobody can name who ran one. A backup without a restore test is a hypothesis |
+| X8 | Blast radius | Everything in one region/AZ, one DNS provider, one registrar, one cloud account |
+| X9 | AI/LLM key sprawl | Shared OpenAI/Anthropic/Bedrock keys, no per-team spend caps, no rotation. One leaked key = unlimited bill |

@@ -5,6 +5,10 @@
 | T1 | State exists and is real | `terraform state list` in the client's IaC root | Empty state with live resources = IaC is decoration, everything is console-managed |
 | T2 | Drift | `terraform plan -input=false` after `terraform import` of key resources | Plan shows changes nobody declared = manual console changes |
 | T3 | State security | Inspect backend config; local state file present? | State on disk unencrypted, no remote locking |
+| T4 | Provider / module staleness | `terraform providers` + read required_providers and module sources; check registry for latest | Provider or module pinned to a version with known CVEs, deprecated, or >2 majors behind. Also: unpinned providers (no version constraint) |
+| T5 | Plugin / toolchain EOL | `terraform version`; check tflint/checkov versions if installed | Terraform itself or audit tooling past EOL or with known CVEs |
+
+| T6 | Expiry forecast | Registry check on pinned provider/module versions + deprecation notices | Pinned version deprecated or CVE-announced with fix available = upgrade window closing |
 
 ## Validated pitfalls
 
