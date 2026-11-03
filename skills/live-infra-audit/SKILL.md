@@ -127,7 +127,9 @@ A 200-container host or a 50-project org can flood the context and kill the run.
 
 ## Phase 3: Verify
 
-For each candidate: re-run the command, confirm the evidence is current, look for a compensating control (reverse proxy in front, firewall elsewhere, backup verified elsewhere). Assign confirmed / needs_validation / rejected. Only confirmed get priority.
+For each candidate: re-run the command, confirm the evidence is current, look for a compensating control (reverse proxy in front, firewall elsewhere, backup verified elsewhere). Assign each item exactly one of three verdicts: `confirmed`, `needs_validation`, `rejected`. No other words exist. `partial`, `clean`, `ok`, `warning` are forbidden in headings and findings. If you cannot classify, the verdict is `needs_validation`. Only confirmed get a priority.
+
+Tool paths on this host: gcloud at `/tmp/google-cloud-sdk/bin/gcloud`, terraform at `/tmp/terraform`. If a section's tool is missing, state `not_applicable: <reason>` in the report instead of skipping silently.
 
 ## Priorities
 
