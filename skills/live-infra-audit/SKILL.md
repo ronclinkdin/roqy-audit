@@ -140,3 +140,5 @@ Tool paths on this host: gcloud at `/tmp/google-cloud-sdk/bin/gcloud`, terraform
 ## Report
 
 Write `live.md`: inventory table, findings with exact command output as evidence (redacted), consequence, smallest fix, effort. Keep it under one page per 10 findings.
+
+Heading format is strict: `### <id> — <title> (CONFIRMED, P0)` where the verdict is exactly CONFIRMED, NEEDS_VALIDATION, or REJECTED. Sections that could not run get a line `not_applicable: <reason>`, never silence and never a new verdict word.

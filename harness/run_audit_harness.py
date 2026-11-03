@@ -102,9 +102,12 @@ def live() -> bool:
     out_root = Path.home() / "infra-readiness-audit" / "gcp-canary-harness"
     prompt = (
         "Run the live-infra-audit skill in full audit mode against GCP project roqy-512012 "
-        "(read-only, gcloud is at /tmp/google-cloud-sdk/bin/gcloud, billing account 013EAB-A843BD-B58B60). "
+        "(read-only, gcloud is at /tmp/google-cloud-sdk/bin/gcloud, terraform at /tmp/terraform, "
+        "billing account 013EAB-A843BD-B58B60). "
         f"Write the report to {out_root}/<today>/live.md. Do not change any resource. "
-        "This is a canary project with planted findings; detect them."
+        "This is a canary project with planted findings; detect them. "
+        "Every finding heading must carry exactly one verdict: CONFIRMED, NEEDS_VALIDATION, or REJECTED. "
+        "No other verdict words. Sections you cannot run get a not_applicable line with the reason."
     )
     cmd = ["hermes", "chat", "-q", prompt, "-s", "live-infra-audit", "--yolo", "--max-turns", "12"]
     print("RUN:", " ".join(cmd))
