@@ -153,3 +153,5 @@ audit the live server, read-only                   # live layer (confirms target
 ## License
 
 MIT
+
+Test: branch protection verification (agent push to feature branch).
