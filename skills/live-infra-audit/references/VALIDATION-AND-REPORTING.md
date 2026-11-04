@@ -40,3 +40,24 @@ Run the harness after every skill change. It caught a priority-on-needs_validati
 - invented verdicts PARTIAL and CLEAN in headings — fixed by strict heading format in the skill + verdict constraint in the live prompt.
 - harness regex false positive on verdicts outside parentheses — fixed by scanning the whole heading line.
 - hermes exit 1 after writing a valid report — gate on artifacts, not exit codes.
+
+
+## The fear layer (every P0/P1 finding tells the story)
+
+A finding is a fact. A danger is a story. People act on stories. Every P0 and P1 finding in the report carries a three-sentence chain after the evidence:
+
+1. How the attacker gets in (the exact vector, in their words: "one anonymous GET").
+2. What they do next (the escalation: "mint a key, list S3, copy the state file").
+3. What it costs (money, downtime, or a named precedent: "this is the Capital One vector, 100M records").
+
+Rules:
+
+- The chain must be specific to THIS finding, not a generic scare paragraph. Name the actual resources from the report.
+- Use a real precedent only when it genuinely matches the vector. One accurate precedent beats three approximate ones.
+- P2 findings get one sentence at most. Fear inflation on small findings destroys trust in the big ones.
+- Never invent numbers. Cost estimates are ranges with the assumption stated ("if the bucket holds backups: restore cost plus breach notification").
+- The closing line of the report is the one-sentence version: what happens if nothing is fixed, in plain words.
+
+Example (real finding from the AWS canary):
+
+> F2: bucket readable and writable by anyone (CONFIRMED, P0). One anonymous request lists and overwrites every object. An attacker plants a poisoned artifact or wipes the backups, and the restore you thought you had is gone. This is the PREMINT 2022 vector: one open bucket, NFT theft at scale.
