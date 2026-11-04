@@ -12,7 +12,7 @@
 | L8 | Firewall | `ufw status` | Inactive while public services listen |
 | L9 | SSH | `grep -E '^(PermitRootLogin\|PasswordAuthentication)' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*` | Password auth on or root password login |
 
-Validated lessons: NPM admin UI on port 81 was publicly reachable while the repo looked clean; empty backup directories behind a healthy-looking cron were P0; sshd overrides live in /etc/ssh/sshd_config.d/50-cloud-init.conf.
+Validated lessons: host-header routing is the blind spot of port scans — a public reverse proxy (NPM/ALB) routing by Host header can reach internal-only hosts; test `curl -sI -H 'Host: <internal-host>' https://<public-proxy>/` for each known internal vhost. NPM admin UI on port 81 was publicly reachable while the repo looked clean; empty backup directories behind a healthy-looking cron were P0; sshd overrides live in /etc/ssh/sshd_config.d/50-cloud-init.conf.
 
 
 ## Expiry forecast (L10-L11)

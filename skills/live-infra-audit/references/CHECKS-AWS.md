@@ -3,7 +3,7 @@
 | # | Check | Command | Finding if |
 |---|---|---|---|
 | W1 | Public S3 buckets | `aws s3api list-buckets`, then per bucket `get-bucket-policy-status` (IsPublic true) + anonymous `curl -s -o /dev/null -w '%{http_code}' https://<bucket>.s3.<region>.amazonaws.com/<key>` | IsPublic true or anonymous 200 |
-| W2 | Open security groups | `aws ec2 describe-security-groups --query 'SecurityGroups[?IpPermissions[?IpProtocol==`tcp` && IpRanges[?CidrIp==`0.0.0.0/0`]]].[GroupId,GroupName]'` | tcp:22/3389/admin ports from 0.0.0.0/0 |
+| W2 | Open security groups | `aws ec2 describe-security-groups --query 'SecurityGroups[?IpPermissions[?IpProtocol==`tcp` && IpRanges[?CidrIp==`0.0.0.0/0`]]].[GroupId,GroupName]'`, then for each hit check attachment: `describe-network-interfaces --filters Name=group-id,Values=<sg>` and whether the attached ENI has a public IP (`describe-network-interfaces --query 'NetworkInterfaces[].Association.PublicIp'`) | tcp:22/3389/admin from 0.0.0.0/0 AND attached to an ENI with a public IP. An unattached or private-only SG is needs_validation, not confirmed |
 | W3 | Long-lived IAM keys | `aws iam list-users` then `list-access-keys --user-name <u>` with CreateDate | Keys older than 90 days, Active keys for departed users |
 | W4 | Root MFA | `aws iam get-account-summary --query 'SummaryMap.AccountMFAEnabled'` | 0 = root without MFA (P0) |
 | W5 | Account-level S3 block | `aws s3control get-public-access-block --account-id <id>` | NoSuchPublicAccessBlockConfiguration = no account guardrail (P2) |
@@ -71,6 +71,8 @@ Sources: ramimac/aws-customer-security-incidents (2014-2024) + Datadog Security 
 | W39 | Secrets in public build artifacts | scan public JS bundles/sourcemaps/build dirs for `AKIA`, `sk-`, PATs | Hardcoded token in a shipped artifact = repo access, then cloud access. Arup 2026 (PAT on forgotten subdomain -> 10k repos), Beacon 2026 (key in JS build -> full DB copy) |
 | W40 | Root access keys exist | `aws iam get-account-summary --query 'SummaryMap.AccountAccessKeysPresent'` | 1 = a root key exists anywhere. Truffle 2026 found 526 live root keys in the wild. Delete all root keys, use roles |
 | W41 | AI-named buckets | `aws s3 ls \| grep -iE 'openai\|llm\|gpt\|bedrock\|ai-\|-ai\|ml-\|model'` | Sysdig 2026: attackers grep for AI-tool naming conventions to find credential buckets fast |
+
+| W42 | Host-header routing to internal hosts | `aws elbv2 describe-load-balancers` + `describe-listeners` + `describe-rules --listener-arns`: read every listener rule's HostHeader condition and target group; then `curl -sI -H 'Host: <internal-host>' https://<alb-dns>/` | A public ALB routes by Host header to a shared proxy that reaches internal-only hosts: internal panels, staging, admin UIs reachable from the internet through the front door. The SG check cannot see this — the ALB is legitimately public, the exposure lives in the routing rule |
 
 ## Lessons (validated)
 
