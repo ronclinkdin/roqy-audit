@@ -1,29 +1,29 @@
-# Live Infra Audit — AWS 856114194841 (canary)
-Date: 2026-11-04. Region eu-central-1. Auditor: roqy-audit (SecurityAudit + PowerUserAccess). Read-only verified: no resources changed. Raw output: raw/*.json in this directory.
+# Live Infra Audit — AWS <canary-account> (canary)
+Date: 2026-11-04. Region <region>. Auditor: <audit-identity> (read-only scope, see CANARY-VALIDATION). Read-only verified: no resources changed. Raw output: raw/*.json in this directory.
 
 ## Inventory
 | Resource | Count | Detail |
 |---|---|---|
-| IAM users | 1 | roqy-audit (audit identity, key created 2026-11-03) |
-| IAM roles | 9 | 6 AWS service-linked + eksClusterRole, eksNodeRole, eksLambdaRole |
-| S3 buckets | 3 | canary-authusers, canary-openai-credentials, write-probe-856114194841 (audit probe artifact) |
+| IAM users | 1 | <audit-identity> (dedicated audit user) |
+| IAM roles | 9 | 6 AWS service-linked + <cluster-role>, <node-role>, <lambda-role> |
+| S3 buckets | 3 | <authusers-bucket>, <ai-named-bucket>, write-probe-<canary-account> (audit probe artifact) |
 | EC2 instances / ENIs / AMIs / key pairs | 0 | empty |
 | EKS / ECS / RDS / ALB / ACM / VPC endpoints | 0 | empty |
-| Lambda | 1 | canary-public-fn (python3.12, Function URL AuthType NONE) |
-| ECR | 1 | canary-public-images (public pull policy) |
-| Snapshots | 1 | snap-089f51e581a18f555 (public createVolumePermission) |
-| Secrets Manager / KMS | 1 / 1 | canary/db-password; auto-secretsmanager-2 |
+| Lambda | 1 | <public-lambda> (python3.12, Function URL AuthType NONE) |
+| ECR | 1 | <public-ecr> (public pull policy) |
+| Snapshots | 1 | <snapshot-id> (public createVolumePermission) |
+| Secrets Manager / KMS | 1 / 1 | <unrotated-secret>; auto-secretsmanager-2 |
 | CloudTrail / Config / GuardDuty / Budgets / Org | 0 | none |
 
 ## Findings
 
 ### F1 — Public S3 bucket with anonymous read AND write, AI-named (CONFIRMED, P0)
-Evidence (get-bucket-policy, roqy-audit-canary-openai-credentials): `Principal:"*", Action:["s3:GetObject","s3:PutObject"]`; get-bucket-policy-status: `IsPublic: true`. Name contains "openai-credentials" (W41 attacker-magnet naming). Anonymous curl returns 403 only because no object exists; the grant is live and account PAB is off (F5).
+Evidence (get-bucket-policy, roqy-audit-<ai-named-bucket>): `Principal:"*", Action:["s3:GetObject","s3:PutObject"]`; get-bucket-policy-status: `IsPublic: true`. Name contains "openai-credentials" (W41 attacker-magnet naming). Anonymous curl returns 403 only because no object exists; the grant is live and account PAB is off (F5).
 Consequence: anyone on the internet can read and plant objects; AI-named buckets are grepped first by attackers (Sysdig 2026).
 Fix: delete the bucket policy, enable account-level BlockPublicPolicy, rename bucket. Effort: 15 min.
 
 ### F2 — EC2 snapshot shared to "all" (CONFIRMED, P0)
-Evidence (describe-snapshot-attribute snap-089f51e581a18f555 --attribute createVolumePermission): `CreateVolumePermissions: [{Group: all}]`; snapshot `Encrypted: false`.
+Evidence (describe-snapshot-attribute <snapshot-id> --attribute createVolumePermission): `CreateVolumePermissions: [{Group: all}]`; snapshot `Encrypted: false`.
 Consequence: any AWS account can copy the full disk (Imperva 2019 / DNC 2016 vector); baked secrets exposed.
 Fix: `ec2 modify-snapshot-attribute --operation-type remove --group-names all`. Effort: 2 min.
 
@@ -34,7 +34,7 @@ Fix: one multi-region trail to a dedicated bucket. Effort: 15 min.
 not_applicable: W29 single-region check — no trails exist.
 
 ### F4 — No budget alerts (CONFIRMED, P1)
-Evidence (describe-budgets --account-id 856114194841): empty output, exit 0, zero budgets.
+Evidence (describe-budgets --account-id <canary-account>): empty output, exit 0, zero budgets.
 Consequence: leaked key = unlimited bill with no alert.
 Fix: one cost budget with alert at $50. Effort: 5 min.
 
@@ -44,17 +44,17 @@ Consequence: no account guardrail; F1/F7-style policies stay possible.
 Fix: put-public-access-block, all four true. Effort: 5 min.
 
 ### F6 — ECR repository world-pullable (CONFIRMED, P1)
-Evidence (get-repository-policy canary-public-images): `Principal:"*"`, Actions `GetDownloadUrlForLayer, BatchGetImage, BatchCheckLayerAvailability`.
+Evidence (get-repository-policy <public-ecr>): `Principal:"*"`, Actions `GetDownloadUrlForLayer, BatchGetImage, BatchCheckLayerAvailability`.
 Consequence: images (and any baked secrets) readable by anyone with the registry URI.
 Fix: delete the repository policy. Effort: 2 min.
 
 ### F7 — S3 bucket open to all AuthenticatedUsers (CONFIRMED, P1)
-Evidence (get-bucket-policy, roqy-audit-canary-authusers): `Principal:"*"`, `s3:GetObject`, Condition `aws:PrincipalType=AuthenticatedUser`; policy-status `IsPublic: true`.
+Evidence (get-bucket-policy, roqy-audit-<authusers-bucket>): `Principal:"*"`, `s3:GetObject`, Condition `aws:PrincipalType=AuthenticatedUser`; policy-status `IsPublic: true`.
 Consequence: "not public" but readable by every AWS account holder (Dow Jones 2026 pattern, 2.2M customers).
 Fix: remove the AuthUsers statement. Effort: 5 min.
 
 ### F8 — Lambda Function URL with AuthType NONE (CONFIRMED, P1)
-Evidence (get-function-url-config canary-public-fn): `AuthType: NONE`, public lambda-url endpoint `https://5uedv22wvhuokswzmrkewjikxy0eazoa.lambda-url.eu-central-1.on.aws/`.
+Evidence (get-function-url-config <public-lambda>): `AuthType: NONE`, public lambda-url endpoint `<lambda-url>`.
 Consequence: unauthenticated public invoke endpoint, invisible in SG/ALB audits.
 Fix: set AuthType AWS_IAM or delete the URL config. Effort: 2 min.
 
@@ -95,7 +95,7 @@ Fix: remove the 0.0.0.0/0 ingress rule. Effort: 2 min.
 ## Checks that passed (evidence, no finding)
 - W4 root MFA enabled (AccountMFAEnabled=1); W40 no root access keys (AccountAccessKeysPresent=0).
 - W10/W31: all 9 role trust policies trust AWS services only (eks, lambda, ec2, autoscaling, support); no cross-account principals, no wildcard, no ExternalId risk.
-- W24/W25: PassRole inline policy "test" scoped to eksClusterRole/eksNodeRole only; no NotAction statements; no wildcard PassRole.
+- W24/W25: PassRole inline policy "test" scoped to <cluster-role>/<node-role> only; no NotAction statements; no wildcard PassRole.
 - W26: KMS key policy is the standard Secrets Manager integration with kms:CallerAccount condition; secret has no resource policy; no external accounts.
 - W27: no bucket notification configurations on any bucket.
 - W3/W11: only IAM user is the fresh audit identity; key created 2026-11-03, active — no dormant users, no stale keys.
@@ -103,8 +103,8 @@ Fix: remove the 0.0.0.0/0 ingress rule. Effort: 2 min.
 - W36: SES in sandbox (ProductionAccessEnabled=false, 200/day quota) — no abuse surface.
 
 ## Notes
-- Write-probe bucket `roqy-audit-write-probe-856114194841` was created by a prior canary run to verify the read-only identity (create succeeded). Read-only mandate forbids deleting it; account owner should remove it.
-- Secret `canary/db-password` has RotationEnabled=false but was created 2026-11-03, under the 90-day threshold — note only, not a finding.
+- Write-probe bucket `roqy-audit-write-probe-<canary-account>` was created by a prior canary run to verify the read-only identity (create succeeded). Read-only mandate forbids deleting it; account owner should remove it.
+- Secret `<unrotated-secret>` has RotationEnabled=false but was created 2026-11-03, under the 90-day threshold — note only, not a finding.
 
 ## Execution order (one window)
 1. F5 account PAB first, then F1 + F7 bucket policies — PAB first so fixes stick.
