@@ -1,4 +1,4 @@
-# AWS checks (W1-W23, one-line killers W24-W32, evidence-based W33-W41)
+# AWS checks (W1-W23, one-line killers W24-W32, evidence-based W33-W45)
 
 | # | Check | Command | Finding if |
 |---|---|---|---|
@@ -73,6 +73,11 @@ Sources: ramimac/aws-customer-security-incidents (2014-2024) + Datadog Security 
 | W41 | AI-named buckets | `aws s3 ls \| grep -iE 'openai\|llm\|gpt\|bedrock\|ai-\|-ai\|ml-\|model'` | Sysdig 2026: attackers grep for AI-tool naming conventions to find credential buckets fast |
 
 | W42 | Host-header routing to internal hosts | `aws elbv2 describe-load-balancers` + `describe-listeners` + `describe-rules --listener-arns`: read every listener rule's HostHeader condition and target group; then `curl -sI -H 'Host: <internal-host>' https://<alb-dns>/` | A public ALB routes by Host header to a shared proxy that reaches internal-only hosts: internal panels, staging, admin UIs reachable from the internet through the front door. The SG check cannot see this — the ALB is legitimately public, the exposure lives in the routing rule |
+
+| W43 | Lambda Function URLs | `aws lambda list-function-url-configs --query 'FunctionUrlConfigs[].{f:FunctionArn,a:AuthType}'` | AuthType NONE on a function that touches data = public endpoint created with one click, invisible in normal API audits |
+
+| W44 | Open SNS/SQS policies | `aws sns list-topics` + `get-topic-attributes` per topic (read Policy); same for `sqs list-queues` + `get-queue-attributes` | Principal `*` with Publish/SendMessage = any account in the world can write to your topics and queues |
+| W45 | Log retention | `aws logs describe-log-groups --query 'logGroups[].{n:logGroupName,r:retentionInDays}'` | retentionInDays null = never expire: unbounded cost plus PII retained forever. Two findings in one setting |
 
 ## Lessons (validated)
 

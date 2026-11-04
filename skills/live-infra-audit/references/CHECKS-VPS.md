@@ -1,4 +1,4 @@
-# VPS / Docker checks (L1-L9, validated on the roqy VPS)
+# VPS / Docker checks (L1-L16, validated on the roqy VPS)
 
 | # | Check | Command | Finding if |
 |---|---|---|---|
@@ -14,6 +14,16 @@
 
 Validated lessons: host-header routing is the blind spot of port scans — a public reverse proxy (NPM/ALB) routing by Host header can reach internal-only hosts; test `curl -sI -H 'Host: <internal-host>' https://<public-proxy>/` for each known internal vhost. NPM admin UI on port 81 was publicly reachable while the repo looked clean; empty backup directories behind a healthy-looking cron were P0; sshd overrides live in /etc/ssh/sshd_config.d/50-cloud-init.conf.
 
+
+## Indirect exposure (L12-L16: what port scans cannot see)
+
+| # | Check | Command | Finding if |
+|---|---|---|---|
+| L12 | Outbound tunnels | `ps aux \| grep -E 'cloudflared\|ngrok\|frp\|autossh\|ssh -R' \| grep -v grep` | Tunnel process running = the internet reaches internal services with zero inbound ports. The biggest blind spot of every port scanner |
+| L13 | Docker bypasses ufw | compare `ufw status` with `docker ps` published ports and `iptables -L DOCKER -n` | Published docker ports are reachable even with ufw active: docker writes iptables directly |
+| L14 | IPv6 exposure | `ss -tlnp \| grep ':::'` + `ip6tables -L -n` | Service on `::` with no ip6tables rules = publicly reachable over IPv6 while the v4 firewall looks tight |
+| L15 | Debug endpoints | `curl -s -o /dev/null -w '%{http_code}' https://<domain>/actuator/env /debug/pprof/ /metrics /_debug` | 200 on any = keys, heap dumps, internal topology exposed on the public domain |
+| L16 | Dangling CNAME takeover | enumerate CNAMEs (crt.sh + zone), resolve each, check for provider NXDOMAIN/NOSUCHSERVICE responses | CNAME to a deprovisioned S3/CloudFront/Heroku target = anyone can claim your subdomain |
 
 ## Expiry forecast (L10-L11)
 
