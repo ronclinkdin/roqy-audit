@@ -1,7 +1,7 @@
 ---
 name: live-infra-audit
-version: "1.1.0"
-description: "Use when auditing a live VPS or cloud host, read-only."
+version: "2.0.0"
+description: "Use when auditing a live VPS, AWS, GCP or Kubernetes environment, read-only. Covers 70+ checks: exposure, IAM, persistence patterns, EOL/expiry forecast, evidence-based breach patterns."
 author: roqy.io
 license: MIT
 metadata:
