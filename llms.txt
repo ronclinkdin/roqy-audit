@@ -1,0 +1,41 @@
+# roqy-audit
+
+> Read-only infrastructure audit skills for coding agents. Audits live AWS, GCP, VPS and Kubernetes environments without changing anything, and produces findings with verdicts: confirmed, needs_validation, rejected.
+
+## What it is
+
+Two agent skills plus a regression harness:
+
+- **live-infra-audit**: audits what is actually running. 70+ checks across AWS (W1-W45), GCP (G1-G10), VPS/Docker (L1-L16), Kubernetes (K1-K18), Terraform (T1-T6), client questions (X1-X9). Includes one-line killers, expiry forecasts, and evidence-based checks derived from real breach data (2014-2026).
+- **infra-readiness-audit**: audits the repository layer: secrets in git, CI/CD gates, Terraform state hygiene.
+- **harness/**: regression harness. Plants known misconfigurations in a canary account, runs the audit agent, and verifies each planted finding is detected. Current score: AWS 9/9 planted findings detected, repo/vps/gcp GREEN.
+
+## Install (30 seconds)
+
+```
+git clone https://github.com/roncoo-2/roqy-audit
+cp -r roqy-audit/skills/live-infra-audit ~/.claude/skills/    # Claude Code
+cp -r roqy-audit/skills/live-infra-audit ~/.cursor/skills/    # Cursor
+```
+
+Then ask your agent: "Run the live-infra-audit skill against my AWS account, read-only."
+
+## Safety model
+
+- Read-only by construction: list, get, describe commands only.
+- Network probes are single status-code requests, opt-in per check, and the client can veto any probe at any time.
+- Secrets are never printed. Findings reference shapes, not values.
+- Every finding carries a verdict. Priority is assigned only to confirmed items.
+
+## Key files
+
+- skills/live-infra-audit/SKILL.md — router and hard safety rules
+- skills/live-infra-audit/references/CHECKS-AWS.md — 45 AWS checks with commands and precedents
+- skills/live-infra-audit/references/DEADLY-DETAILS.md — small-but-lethal mechanisms explained in depth
+- skills/live-infra-audit/references/VALIDATION-AND-REPORTING.md — verdict model, attack chains, residual risk
+- harness/run_scenarios.py — canary regression runner
+- docs/runs/ — real canary reports as proof of detection
+
+## License
+
+MIT. Built by roqy.io, DevOps-as-a-service for 1-100 person startups: https://roqy.io
