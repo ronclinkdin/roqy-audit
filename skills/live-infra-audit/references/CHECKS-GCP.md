@@ -31,6 +31,13 @@ Logs being on by default is not visibility. Always check who reads them (A3) and
 | G7 | TLS cert horizon | `gcloud compute ssl-certificates list --format='table(name,expireTime)'` | Any cert <30 days out |
 | G8 | Commitment / spend guard | `gcloud compute commitments list` + billing budget check | Commitments ending <90 days unowned, or LLM API keys with no budget cap |
 
+## One-line killers (G9-G10)
+
+| # | Check | Command | Finding if |
+|---|---|---|---|
+| G9 | TokenCreator on wildcard | `gcloud projects get-iam-policy <p> --format=json` and grep for `iam.serviceAccountTokenCreator` with wildcard members | Member can impersonate every service account in the project |
+| G10 | Public invoker | `gcloud run services list --format='table(metadata.name,metadata.labels)'` + IAM policy per service; same for Cloud Functions | `allUsers` on invoker = private function turned public with its service account attached |
+
 ## Cloud connection pipeline (verified)
 
 1. Connect: `gcloud auth login --no-launch-browser` in a pty background terminal, feed the browser code with process submit. Verify with `gcloud auth list` — the login can save the token even when gcloud prints a confusing error afterward, so always re-check auth list before retrying.

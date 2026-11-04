@@ -1,7 +1,7 @@
 ---
 name: live-infra-audit
-version: "1.1.0"
-description: "Use when auditing a live VPS or cloud host, read-only."
+version: "2.0.0"
+description: "Use when auditing a live VPS, AWS, GCP or Kubernetes environment, read-only. Covers 70+ checks: exposure, IAM, persistence patterns, EOL/expiry forecast, evidence-based breach patterns."
 author: roqy.io
 license: MIT
 metadata:
@@ -18,6 +18,7 @@ Audit what is actually running, not what the repo claims. Read-only always. Outp
 
 1. Read-only commands only: `docker ps/inspect/images`, `ss -tlnp`, `curl -I`, `openssl s_client`, `df`, `crontab -l`, `systemctl status`, cloud `list/get/describe` calls.
 2. Never restart, stop, exec into, or reconfigure anything. Never send load or probes beyond a single HEAD request to the audited host.
+3. Network probes are opt-in per check: list the planned probes before the first one, let the client strike any of them, honor a refusal immediately and mark the check needs_validation ("client declined network probe"). No workarounds.
 3. Never print secret values. Redact to first 4 chars. Do not read secret file contents, only names/permissions.
 4. Confirm the target host with the user before touching a server you were not pointed at.
 5. Write output outside the repo: `~/infra-readiness-audit/<host>/<date>/live.md`.

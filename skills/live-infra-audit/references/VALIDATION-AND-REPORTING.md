@@ -40,3 +40,36 @@ Run the harness after every skill change. It caught a priority-on-needs_validati
 - invented verdicts PARTIAL and CLEAN in headings — fixed by strict heading format in the skill + verdict constraint in the live prompt.
 - harness regex false positive on verdicts outside parentheses — fixed by scanning the whole heading line.
 - hermes exit 1 after writing a valid report — gate on artifacts, not exit codes.
+
+
+## The fear layer (every P0/P1 finding tells the story)
+
+A finding is a fact. A danger is a story. People act on stories. Every P0 and P1 finding in the report carries a three-sentence chain after the evidence:
+
+1. How the attacker gets in (the exact vector, in their words: "one anonymous GET").
+2. What they do next (the escalation: "mint a key, list S3, copy the state file").
+3. What it costs (money, downtime, or a named precedent: "this is the Capital One vector, 100M records").
+
+Rules:
+
+- The chain must be specific to THIS finding, not a generic scare paragraph. Name the actual resources from the report.
+- Use a real precedent only when it genuinely matches the vector. One accurate precedent beats three approximate ones.
+- P2 findings get one sentence at most. Fear inflation on small findings destroys trust in the big ones.
+- Never invent numbers. Cost estimates are ranges with the assumption stated ("if the bucket holds backups: restore cost plus breach notification").
+- The closing line of the report is the one-sentence version: what happens if nothing is fixed, in plain words.
+
+## If it stays (residual risk, not just the finding)
+
+Most readers stop at "we have a finding". The decision to fix happens when they understand what the finding BECOMES if it stays. Every P0/P1 finding carries a fourth element after the attack chain: what this finding compounds into over time.
+
+- **It gets worse on its own:** an open bucket accumulates more data to steal; a dormant user outlives the offboarding that should have removed it; an unrotated secret crosses the 90-day line and every backup that contains it ages with it. State the direction, not just the state.
+- **It unlocks the next one:** a leaked key is not the end state, it is the entry ticket to the state file, which is the entry ticket to the second account. Name the next door this one opens.
+- **It is visible to others right now:** scanners, Shodan, and opportunistic attackers enumerate the same public surface we did. If we found it in one afternoon, assume we were not first. The exposure window started when the misconfiguration did, not when our report landed.
+- **It costs money while it sits:** unbounded log retention, an idle GPU node, a public bucket serving traffic. Some findings bill every month even if nobody attacks.
+- **It blocks the things they will want later:** SOC 2, cyber insurance, an enterprise deal's security questionnaire, an acquisition diligence. Name the gate this finding fails.
+
+Format: one short paragraph titled "If it stays", after the attack chain. Same honesty rules as the fear layer: specific to this finding, no invented numbers, no fear inflation on P2.
+
+Example (real finding from the AWS canary):
+
+> F2: bucket readable and writable by anyone (CONFIRMED, P0). One anonymous request lists and overwrites every object. An attacker plants a poisoned artifact or wipes the backups, and the restore you thought you had is gone. This is the PREMINT 2022 vector: one open bucket, NFT theft at scale.
