@@ -28,6 +28,8 @@ Run together: `hostname; uname -r; uptime`; `docker ps --format '{{.Names}}\t{{.
 
 ## Curl discipline (zero-friction rule)
 
+Client veto: before the FIRST network probe of the audit, present the list of planned probes (which checks, which endpoints, one request each) and ask the client to approve or strike any of them. The client can refuse any probe at any time, including mid-audit. A refused probe is never run; the check becomes needs_validation with the reason "client declined network probe". Never argue, never work around a refusal (no alternate endpoints, no different methods).
+
 Every network probe must survive three questions: whose infrastructure is it, did they consent to this audit scope, and does the probe fetch content or just prove reachability.
 
 1. Status code only: every probe uses `-o /dev/null -w '%{http_code}'` or `-sI` (HEAD). Never save a response body to the report or to disk. The status code is the evidence; the body is somebody's data.
