@@ -1,6 +1,6 @@
 # AWS canary audit — planted-case validation run
 
-Date: 2026-11-03. Account 856114194841, identity roqy-audit (SecurityAudit + temporary PowerUserAccess for planting). Region eu-central-1. Audit checks read-only.
+Date: 2026-11-03. Account <canary-account>, identity roqy-audit (SecurityAudit + temporary PowerUserAccess for planting). Region eu-central-1. Audit checks read-only.
 
 ## Planted cases
 

@@ -61,7 +61,7 @@ SCENARIOS = {
     "aws": {
         "skill": "live-infra-audit",
         "prompt": (
-            "Run the live-infra-audit skill in full audit mode against AWS account 856114194841 "
+            "Run the live-infra-audit skill in full audit mode against AWS account <canary-account> "
             "(read-only, aws CLI configured, region eu-central-1, profile default). "
             f"Write live.md to {ROOT}/aws-harness/<today>/. Do not change any resource. "
             "This is a canary account with planted findings; detect them. " + VERDICT_RULE

@@ -1,6 +1,6 @@
-# Live Infra Audit — AWS 856114194841 (canary), 2026-11-03
+# Live Infra Audit — AWS <canary-account> (canary), 2026-11-03
 
-Region eu-central-1. Identity: arn:aws:iam::856114194841:user/roqy-audit. Read-only run; one write probe (F12) disclosed below. Raw output: raw/recon.txt, raw/checks.txt, raw/checks2.txt.
+Region eu-central-1. Identity: arn:aws:<audit-identity-arn>. Read-only run; one write probe (F12) disclosed below. Raw output: raw/recon.txt, raw/checks.txt, raw/checks2.txt.
 
 ## Inventory
 
@@ -45,7 +45,7 @@ Consequence: zero change history; an attacker with console/API access leaves no 
 Fix: one multi-region trail to a dedicated bucket. Effort: 30 min.
 
 ### F6 — No budget alerts (CONFIRMED, P1)
-Evidence: `aws budgets describe-budgets --account-id 856114194841` → empty output.
+Evidence: `aws budgets describe-budgets --account-id <canary-account>` → empty output.
 Consequence: a leaked key or crypto-mining incident bills silently.
 Fix: one $-threshold budget with email alert. Effort: 15 min.
 
@@ -65,7 +65,7 @@ Consequence: every future volume born unencrypted (see F4).
 Fix: `enable-ebs-encryption-by-default`. Effort: 5 min.
 
 ### F10 — Audit identity can write (write probe succeeded) (CONFIRMED, P2)
-Evidence: `create-bucket roqy-audit-write-probe-856114194841` returned success (Location header). Per skill lesson, the probe should return AccessDenied for a read-only identity.
+Evidence: `create-bucket <write-probe-bucket>` returned success (Location header). Per skill lesson, the probe should return AccessDenied for a read-only identity.
 Consequence: the audit identity has S3 write permissions; audit scope is larger than intended. Side effect disclosed: the probe bucket was created and left in place (read-only mandate — no deletes). Remove it manually.
 Fix: strip write permissions from roqy-audit; delete the probe bucket. Effort: 10 min.
 
@@ -86,7 +86,7 @@ Evidence: `sesv2 get-account` → `ProductionAccessEnabled: false`, Max24HourSen
 Why rejected: sandbox mode, negligible send quota.
 
 ### F15 — KMS cross-account exposure (REJECTED)
-Evidence: key policy is the standard Secrets Manager auto-generated policy; every external-facing statement carries `kms:CallerAccount: 856114194841` conditions.
+Evidence: key policy is the standard Secrets Manager auto-generated policy; every external-facing statement carries `kms:CallerAccount: <canary-account>` conditions.
 Why rejected: no external account access.
 
 ## not_applicable lines
