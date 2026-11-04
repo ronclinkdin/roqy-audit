@@ -30,7 +30,7 @@ findings.json (when produced): one object per item with id, category, title, sta
 
 ## Harness
 
-Validator: /root/roqy-audit/harness/run_audit_harness.py (`validate <dir>` checks report exists, under 120 lines, no secret/token leaks, findings.json schema, verdict hygiene, planted-finding coverage, per-family keyword coverage as WARN for old reports). Scenario runner: /root/roqy-audit/harness/run_scenarios.py (repo / vps / gcp, gke opt-in). `live` mode runs the skill end-to-end via `hermes chat -s live-infra-audit --yolo` against the canary and validates the output.
+Validator: harness/run_audit_harness.py (`validate <dir>` checks report exists, under 120 lines, no secret/token leaks, findings.json schema, verdict hygiene, planted-finding coverage, per-family keyword coverage as WARN for old reports). Scenario runner: harness/run_scenarios.py (repo / vps / gcp, gke opt-in). `live` mode runs the skill end-to-end via `hermes chat -s live-infra-audit --yolo` against the canary and validates the output.
 
 Run the harness after every skill change. It caught a priority-on-needs_validation violation and an invented-verdict heading on its first passes. Gate on artifact validation, not on the hermes process exit code: max-turns exhaustion after the report is written still counts as success. Keep the repo copy and the profile copy of the skill in sync (cp after every edit).
 

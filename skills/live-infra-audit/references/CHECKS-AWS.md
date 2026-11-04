@@ -3,7 +3,7 @@
 | # | Check | Command | Finding if |
 |---|---|---|---|
 | W1 | Public S3 buckets | `aws s3api list-buckets`, then per bucket `get-bucket-policy-status` (IsPublic true) + anonymous `curl -s -o /dev/null -w '%{http_code}' https://<bucket>.s3.<region>.amazonaws.com/<key>` | IsPublic true or anonymous 200 |
-| W2 | Open security groups | `aws ec2 describe-security-groups --query 'SecurityGroups[?IpPermissions[?IpProtocol==`tcp` && IpRanges[?CidrIp==`0.0.0.0/0`]]].[GroupId,GroupName]'`, then for each hit check attachment: `describe-network-interfaces --filters Name=group-id,Values=<sg>` and whether the attached ENI has a public IP (`describe-network-interfaces --query 'NetworkInterfaces[].Association.PublicIp'`) | tcp:22/3389/admin from 0.0.0.0/0 AND attached to an ENI with a public IP. An unattached or private-only SG is needs_validation, not confirmed |
+| W2 | Open security groups | `aws ec2 describe-security-groups --query 'SecurityGroups[?IpPermissions[?IpProtocol==`tcp` && IpRanges[?CidrIp==`0.0.0.0/0`] || Ipv6Ranges[?CidrIp==`::/0`]]].[GroupId,GroupName]'`, then for each hit check attachment: `describe-network-interfaces --filters Name=group-id,Values=<sg>` and whether the attached ENI has a public IP (`describe-network-interfaces --query 'NetworkInterfaces[].Association.PublicIp'`) | tcp:22/3389/admin from 0.0.0.0/0 or ::/0 (IPv6 is the common miss) AND attached to an ENI with a public IP. An unattached or private-only SG is needs_validation, not confirmed |
 | W3 | Long-lived IAM keys | `aws iam list-users` then `list-access-keys --user-name <u>` with CreateDate | Keys older than 90 days, Active keys for departed users |
 | W4 | Root MFA | `aws iam get-account-summary --query 'SummaryMap.AccountMFAEnabled'` | 0 = root without MFA (P0) |
 | W5 | Account-level S3 block | `aws s3control get-public-access-block --account-id <id>` | NoSuchPublicAccessBlockConfiguration = no account guardrail (P2) |
@@ -39,7 +39,7 @@
 |---|---|---|---|
 | W21 | TLS cert horizon | `aws acm list-certificates` + `describe-certificate --query 'Certificate.NotAfter'` | Any cert <30 days out. Renewal automation already failed if it is this close |
 | W22 | RI / Savings Plan end | `aws ce get-reservation-utilization` + `describe-savings-plans` | Plans ending <90 days with no renewal owner named = bill jump with no warning |
-| W23 | AI/LLM spend guard | `aws bedrock list-invocations`-style usage + check for cost anomaly detector | Bedrock/OpenAI keys with no spend cap or anomaly detection = one leaked key is an unlimited bill |
+| W23 | AI/LLM spend guard | `aws ce get-anomaly-detectors` (cost anomaly detection exists?) + `aws bedrock list-custom-models` + `aws bedrock list-foundation-models --query 'modelSummaries[].modelId'` for usage surface | No cost anomaly detector while Bedrock or LLM API keys exist = one leaked key is an unlimited bill |
 
 ## One-line killers (W24-W32: the smallest config lines with the biggest damage)
 
@@ -62,9 +62,9 @@ Sources: ramimac/aws-customer-security-incidents (2014-2024) + Datadog Security 
 | # | Check | Command | Finding if | Real precedent |
 |---|---|---|---|---|
 | W33 | S3 global write | read every bucket policy for `s3:PutObject` with Principal `*` | Anyone on the internet can plant files in your bucket. LA Times 2018, Twilio 2020, PREMINT 2022 all started here |
-| W34 | Shared snapshots | `aws ec2 describe-snapshots --owner-ids self --query 'Snapshots[].{id:SnapshotId,perm:CreateVolumePermissions}'` + same for RDS | Snapshot shared to another account or all = full disk copy with baked secrets. Imperva 2019 (RDS snapshot stolen), DNC 2016 (EC2 snapshots copied) |
+| W34 | Shared snapshots | `aws ec2 describe-snapshot-attribute --snapshot-id <id> --attribute createVolumePermission` per snapshot (describe-snapshots does NOT return sharing state) + `aws rds describe-db-snapshot-attributes` per RDS snapshot | Sharing contains group:all or another account = full disk copy with baked secrets. Imperva 2019 (RDS snapshot stolen), DNC 2016 (EC2 snapshots copied) |
 | W35 | ECS exposure | `aws ecs list-clusters` + `describe-task-definition` per task: check for public ports, `aws ecs describe-services` | Task with exposed port = cryptojacking entry. Datadog 2024: "ECS is the new EC2 for crypto mining" |
-| W36 | SES abuse guard | `aws sesv2 list-account-details` (production access, sending limits) + `list-identities` | Production SES with no sending limit review = stolen key sends phishing as your domain. Kaspersky 2021, Rapid7 2024 |
+| W36 | SES abuse guard | `aws sesv2 get-account` (production access, sending limits) + `aws sesv2 list-email-identities` | Production SES with no sending limit review = stolen key sends phishing as your domain. Kaspersky 2021, Rapid7 2024 |
 | W37 | Secrets rotation | `aws secretsmanager list-secrets --query 'SecretList[].{n:Name,r:RotationEnabled}'` | RotationEnabled=false on secrets older than 90 days. FTX 2022: private keys in Secrets Manager, no rotation, no HSM |
 
 | W38 | AuthenticatedUsers grants | read bucket policies/ACLs for grants to `AuthenticatedUsers` or `http://acs.amazonaws.com/groups/global/AuthenticatedUsers` | "Not public" but open to every AWS account holder. Dow Jones 2026: 2.2M customers via exactly this |

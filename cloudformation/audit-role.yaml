@@ -1,0 +1,84 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Read-only audit role for roqy.io. Creates a cross-account role assumable
+  only by the roqy audit role with the client's ExternalId. No users, no
+  access keys. Delete the stack to revoke everything.
+Parameters:
+  ExternalId:
+    Type: String
+    Description: Random string provided by roqy.io over a secure channel. Keep private.
+    NoEcho: true
+    MinLength: 16
+    MaxLength: 64
+    AllowedPattern: "[a-zA-Z0-9-]+"
+  AuditAccountPrincipalArn:
+    Type: String
+    Description: ARN of the roqy.io audit role that will assume this role.
+    AllowedPattern: "arn:aws:iam::[0-9]{12}:role/.+"
+Resources:
+  AuditRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "roqy-audit-${AWS::StackName}"
+      MaxSessionDuration: 14400
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Ref AuditAccountPrincipalArn
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                sts:ExternalId: !Ref ExternalId
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/SecurityAudit
+        - arn:aws:iam::aws:policy/job-function/ViewOnlyAccess
+      Policies:
+        - PolicyName: ExplicitDenyWrites
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: DenyAllWrites
+                Effect: Deny
+                Action:
+                  - "s3:Put*"
+                  - "s3:Delete*"
+                  - "ec2:Create*"
+                  - "ec2:Delete*"
+                  - "ec2:Modify*"
+                  - "ec2:Authorize*"
+                  - "ec2:Revoke*"
+                  - "ec2:RunInstances"
+                  - "iam:Create*"
+                  - "iam:Delete*"
+                  - "iam:Put*"
+                  - "iam:Attach*"
+                  - "iam:Detach*"
+                  - "iam:Update*"
+                  - "lambda:Create*"
+                  - "lambda:Delete*"
+                  - "lambda:Update*"
+                  - "lambda:Invoke*"
+                  - "secretsmanager:Put*"
+                  - "secretsmanager:Delete*"
+                  - "secretsmanager:Rotate*"
+                  - "kms:Create*"
+                  - "kms:Delete*"
+                  - "kms:Put*"
+                  - "kms:Schedule*"
+                  - "logs:Put*"
+                  - "logs:Delete*"
+                  - "sns:Publish"
+                  - "sns:Create*"
+                  - "sns:Delete*"
+                  - "sns:Set*"
+                  - "sqs:Send*"
+                  - "sqs:Create*"
+                  - "sqs:Delete*"
+                  - "sts:AssumeRole"
+                Resource: "*"
+Outputs:
+  RoleArn:
+    Description: Send this ARN back to roqy.io.
+    Value: !GetAtt AuditRole.Arn

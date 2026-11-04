@@ -1,0 +1,15 @@
+# gitleaks config for roqy-audit
+#
+# docs/runs/*.md are audit reports. Earlier versions quoted secret VALUES they
+# found in the audited repo (that itself was a process violation, fixed: values
+# are now redacted to 4 chars). The pre-redaction versions remain in git
+# history, so history scans flag them. The affected secrets belong to the
+# roqy.io website stack and are being rotated; the allowlist below only covers
+# the historical report files, never source code.
+
+[extend]
+useDefault = true
+
+[[extend.allowlists]]
+description = "Historical audit reports: quoted findings, since redacted"
+paths = ['docs/runs/.*\.md']
