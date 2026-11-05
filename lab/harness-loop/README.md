@@ -57,6 +57,9 @@ python3 loop.py --iterations 3 --baseline-run runs/baseline-live
 
 אחרי אימות live: 94/94, אפס mismatch ואפס FP, וה-objective עלה מ-932 ל-940. בסבב השני לא היו הצעות, אז הלולאה עצרה.
 
+## שרשרת אספקה (c26/c27)
+נוספו בדיקות סטטיות (בלי AWS) ל-Docker/תלויות ול-skills/MCP של סוכני AI. הצמחים ב-`vuln-lab/client-repo`, והתאום הנקי ב-`variants/clean-repo` (Dockerfile עם digest, Renovate עם `minimumReleaseAge`, MCP נעול, skills בלי injection). רץ ב-`--static-only` ונכנס לגרסת ה-OSS החינמית.
+
 ## מה עוד פתוח
 - `clean-account`: צריך חשבון AWS נקי שני ופרופיל `roqy-audit-clean`, ואז `enabled: true`.
 - ה-cache של ה-replay שומר raw outputs, שיכולים לכלול ערכים של env ב-Lambda או ב-ECS. במעבדה הערכים מזויפים, אבל ללקוח אמיתי צריך להשחיר אותם לפני שמירה.

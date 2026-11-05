@@ -10,6 +10,8 @@ Sandbox for the AWS audit. The pytest suite does not call AWS and does not need 
 
 `vuln-lab/README.md` and `harness-loop/README.md` are in Hebrew.
 
+`EXPECTED-FINDINGS.yaml` has 123 plants, 108 on by default. The latest static slice is c26 (Docker and dependencies) and c27 (agent skills and MCP): 14 plants, scored 14/14 on `client-repo` and 0 findings on `harness-loop/variants/clean-repo`. Those checks run with `audit_envelope.py --static-only` and do not call AWS.
+
 ## Audit role
 
 `vuln-lab/access/` builds `roqy-audit-sandbox`:

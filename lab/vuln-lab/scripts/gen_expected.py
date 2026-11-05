@@ -15,6 +15,7 @@ C = {
  "c19": "Terraform state & backend", "c20": "IaC drift (code != cloud)", "c21": "IaC supply chain",
  "c22": "CI/CD pipeline into the cloud (GitHub Actions)", "c23": "Kubernetes workloads & RBAC",
  "c24": "Helm releases", "c25": "Cross-layer attack chains",
+ "c26": "Container & dependency supply chain", "c27": "AI agent supply chain (skills/MCP)",
 }
 
 P = []
@@ -424,6 +425,53 @@ p("chain-pod-imds-s3", "c25", "roqy-lab-eks-node", ["NEW-CHAIN-POD-IMDS-S3"], "P
 p("chain-state-db", "c25", "roqy-lab-legacy-db", ["NEW-CHAIN-STATE-DB"], "P1",
   ["correlate: NEW-TF-STATE-ACCESS + NEW-TF-STATE-SECRETS + NEW-RDS-EXPOSURE"],
   "Chain: any principal in the account reads state -> plaintext DB password -> publicly accessible RDS.", kind="chain", requires=ENV + ["rds"])
+
+
+# ---- c26 container & dependency supply chain (static / free OSS) ----
+p("docker-from-floating", "c26", "Dockerfile", ["NEW-DOCKER-FROM-PIN"], "P2",
+  ["static: Dockerfile FROM ...:latest or untagged without @sha256 digest"],
+  "Base image on a floating tag (latest / no tag) with no digest pin: builds are unreproducible and silently pick up new layers.", requires=ENV)
+p("docker-pipe-shell", "c26", "Dockerfile", ["NEW-DOCKER-PIPE-SHELL"], "P1",
+  ["static: RUN curl|bash / wget|sh inside Dockerfile"],
+  "Pipe-to-shell inside the image build: remote script runs as root in the build context.", requires=ENV)
+p("cicd-pipe-shell", "c26", "docker-build.yml", ["NEW-CICD-PIPE-SHELL"], "P1",
+  ["static: .github/workflows/* step with curl|bash or wget|sh"],
+  "CI step pipes a remote script into a shell (same class as Dockerfile pipe-to-shell).", requires=ENV)
+p("docker-eol-base", "c26", "Dockerfile", ["NEW-DOCKER-EOL-BASE"], "P1",
+  ["static: FROM python/node/ubuntu/... tag in a maintained local EOL list (no network)"],
+  "Base image tag is past end-of-life (e.g. python:2.7, node:16): no security updates.", requires=ENV)
+p("deps-unpinned-req", "c26", "requirements.txt", ["NEW-DEPS-UNPINNED"], "P2",
+  ["static: requirements.txt lines without == / >= / ~= pins"],
+  "Python deps without pins: tomorrow's pip install can differ from today's.", requires=ENV)
+p("deps-no-lockfile", "c26", "package.json", ["NEW-DEPS-NO-LOCKFILE"], "P2",
+  ["static: package.json present, no package-lock.json / yarn.lock / pnpm-lock.yaml"],
+  "Node deps declared without a lockfile committed alongside.", requires=ENV)
+p("docker-unpinned-install", "c26", "Dockerfile", ["NEW-DOCKER-UNPINNED-INSTALL"], "P2",
+  ["static: RUN pip install <pkg> / npm install <pkg> without pin and not via -r requirements"],
+  "Image build installs packages not pinned and not from a lock/requirements file.", requires=ENV)
+p("deps-update-hygiene", "c26", "renovate.json", ["NEW-DEPS-UPDATE-HYGIENE"], "P3",
+  ["static: renovate.json / dependabot.yml missing, or present without minimumReleaseAge / cooldown"],
+  "No update bot cooldown: brand-new (and often malicious) releases can land the same day.", requires=ENV)
+p("docker-add-remote", "c26", "Dockerfile", ["NEW-DOCKER-ADD-REMOTE"], "P2",
+  ["static: ADD https://... without --checksum"],
+  "Remote ADD without checksum: content can change under the same URL.", requires=ENV)
+# ---- c27 AI agent supply chain ----
+p("agent-prompt-inject", "c27", "SKILL.md", ["NEW-AGENT-PROMPT-INJECT"], "P0",
+  ["static: .claude/skills/**/SKILL.md / .cursor/rules / AGENTS.md with ignore-previous / HTML-comment / exfil markers"],
+  "Agent skill/rule instructs the model to ignore prior instructions or exfiltrate data (prompt injection).", requires=ENV)
+p("agent-skill-script", "c27", "install.sh", ["NEW-AGENT-SKILL-SCRIPT"], "P0",
+  ["static: skill-bundled scripts with curl|bash / eval / exfil URL"],
+  "Skill ships an installer that pipe-to-shells or evals remote code with the agent's privileges.", requires=ENV)
+p("agent-mcp-unpinned", "c27", "mcp.json", ["NEW-AGENT-MCP-PIN"], "P1",
+  ["static: .cursor/mcp.json servers via npx -y pkg / uvx pkg@latest / git+ without commit SHA"],
+  "MCP server package unpinned: a new publish runs under the agent's credentials next launch.", requires=ENV)
+p("agent-mcp-secrets", "c27", "mcp.json", ["NEW-AGENT-MCP-SECRETS"], "P1",
+  ["static: mcp.json env keys matching secret/token/api_key with non-empty values (names only)"],
+  "MCP config hardcodes secret-like env values in the repo.", requires=ENV)
+p("agent-mcp-broad-fs", "c27", "mcp.json", ["NEW-AGENT-MCP-FS"], "P2",
+  ["static: filesystem MCP args include / or $HOME"],
+  "Filesystem MCP granted the repo root of the machine (/ or home) instead of a narrow workspace path.", requires=ENV)
+
 
 doc = {
   "schema_version": 1,

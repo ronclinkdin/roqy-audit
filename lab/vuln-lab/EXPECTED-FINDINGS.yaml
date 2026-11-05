@@ -341,7 +341,7 @@ plants:
   detect_read_only:
   - aws s3control get-public-access-block --account-id <id>
   finding_if: NoSuchPublicAccessBlockConfiguration. The lab NEVER changes account BPA; active only if the sandbox never set it.
-  notes: ''
+  notes: 'Sandbox 856114194841 turned account BPA on (2026-11-04 canary cleanup): pass --enable account_bpa_unset only on an account without it.'
 - id: s3-no-versioning-objectlock
   category: c6
   category_name: S3 ransomware & destruction (SSE-C, lifecycle, backups)
@@ -1831,4 +1831,228 @@ plants:
   detect_read_only:
   - 'correlate: NEW-TF-STATE-ACCESS + NEW-TF-STATE-SECRETS + NEW-RDS-EXPOSURE'
   finding_if: 'Chain: any principal in the account reads state -> plaintext DB password -> publicly accessible RDS.'
+  notes: ''
+- id: docker-from-floating
+  category: c26
+  category_name: Container & dependency supply chain
+  kind: plant
+  resource: Dockerfile
+  expected_check_ids:
+  - NEW-DOCKER-FROM-PIN
+  expected_severity: P2
+  enabled_by_default: true
+  requires:
+  - envelope
+  guarded_by_boundary: false
+  detect_read_only:
+  - 'static: Dockerfile FROM ...:latest or untagged without @sha256 digest'
+  finding_if: 'Base image on a floating tag (latest / no tag) with no digest pin: builds are unreproducible and silently pick up new layers.'
+  notes: ''
+- id: docker-pipe-shell
+  category: c26
+  category_name: Container & dependency supply chain
+  kind: plant
+  resource: Dockerfile
+  expected_check_ids:
+  - NEW-DOCKER-PIPE-SHELL
+  expected_severity: P1
+  enabled_by_default: true
+  requires:
+  - envelope
+  guarded_by_boundary: false
+  detect_read_only:
+  - 'static: RUN curl|bash / wget|sh inside Dockerfile'
+  finding_if: 'Pipe-to-shell inside the image build: remote script runs as root in the build context.'
+  notes: ''
+- id: cicd-pipe-shell
+  category: c26
+  category_name: Container & dependency supply chain
+  kind: plant
+  resource: docker-build.yml
+  expected_check_ids:
+  - NEW-CICD-PIPE-SHELL
+  expected_severity: P1
+  enabled_by_default: true
+  requires:
+  - envelope
+  guarded_by_boundary: false
+  detect_read_only:
+  - 'static: .github/workflows/* step with curl|bash or wget|sh'
+  finding_if: CI step pipes a remote script into a shell (same class as Dockerfile pipe-to-shell).
+  notes: ''
+- id: docker-eol-base
+  category: c26
+  category_name: Container & dependency supply chain
+  kind: plant
+  resource: Dockerfile
+  expected_check_ids:
+  - NEW-DOCKER-EOL-BASE
+  expected_severity: P1
+  enabled_by_default: true
+  requires:
+  - envelope
+  guarded_by_boundary: false
+  detect_read_only:
+  - 'static: FROM python/node/ubuntu/... tag in a maintained local EOL list (no network)'
+  finding_if: 'Base image tag is past end-of-life (e.g. python:2.7, node:16): no security updates.'
+  notes: ''
+- id: deps-unpinned-req
+  category: c26
+  category_name: Container & dependency supply chain
+  kind: plant
+  resource: requirements.txt
+  expected_check_ids:
+  - NEW-DEPS-UNPINNED
+  expected_severity: P2
+  enabled_by_default: true
+  requires:
+  - envelope
+  guarded_by_boundary: false
+  detect_read_only:
+  - 'static: requirements.txt lines without == / >= / ~= pins'
+  finding_if: 'Python deps without pins: tomorrow''s pip install can differ from today''s.'
+  notes: ''
+- id: deps-no-lockfile
+  category: c26
+  category_name: Container & dependency supply chain
+  kind: plant
+  resource: package.json
+  expected_check_ids:
+  - NEW-DEPS-NO-LOCKFILE
+  expected_severity: P2
+  enabled_by_default: true
+  requires:
+  - envelope
+  guarded_by_boundary: false
+  detect_read_only:
+  - 'static: package.json present, no package-lock.json / yarn.lock / pnpm-lock.yaml'
+  finding_if: Node deps declared without a lockfile committed alongside.
+  notes: ''
+- id: docker-unpinned-install
+  category: c26
+  category_name: Container & dependency supply chain
+  kind: plant
+  resource: Dockerfile
+  expected_check_ids:
+  - NEW-DOCKER-UNPINNED-INSTALL
+  expected_severity: P2
+  enabled_by_default: true
+  requires:
+  - envelope
+  guarded_by_boundary: false
+  detect_read_only:
+  - 'static: RUN pip install <pkg> / npm install <pkg> without pin and not via -r requirements'
+  finding_if: Image build installs packages not pinned and not from a lock/requirements file.
+  notes: ''
+- id: deps-update-hygiene
+  category: c26
+  category_name: Container & dependency supply chain
+  kind: plant
+  resource: renovate.json
+  expected_check_ids:
+  - NEW-DEPS-UPDATE-HYGIENE
+  expected_severity: P3
+  enabled_by_default: true
+  requires:
+  - envelope
+  guarded_by_boundary: false
+  detect_read_only:
+  - 'static: renovate.json / dependabot.yml missing, or present without minimumReleaseAge / cooldown'
+  finding_if: 'No update bot cooldown: brand-new (and often malicious) releases can land the same day.'
+  notes: ''
+- id: docker-add-remote
+  category: c26
+  category_name: Container & dependency supply chain
+  kind: plant
+  resource: Dockerfile
+  expected_check_ids:
+  - NEW-DOCKER-ADD-REMOTE
+  expected_severity: P2
+  enabled_by_default: true
+  requires:
+  - envelope
+  guarded_by_boundary: false
+  detect_read_only:
+  - 'static: ADD https://... without --checksum'
+  finding_if: 'Remote ADD without checksum: content can change under the same URL.'
+  notes: ''
+- id: agent-prompt-inject
+  category: c27
+  category_name: AI agent supply chain (skills/MCP)
+  kind: plant
+  resource: SKILL.md
+  expected_check_ids:
+  - NEW-AGENT-PROMPT-INJECT
+  expected_severity: P0
+  enabled_by_default: true
+  requires:
+  - envelope
+  guarded_by_boundary: false
+  detect_read_only:
+  - 'static: .claude/skills/**/SKILL.md / .cursor/rules / AGENTS.md with ignore-previous / HTML-comment / exfil markers'
+  finding_if: Agent skill/rule instructs the model to ignore prior instructions or exfiltrate data (prompt injection).
+  notes: ''
+- id: agent-skill-script
+  category: c27
+  category_name: AI agent supply chain (skills/MCP)
+  kind: plant
+  resource: install.sh
+  expected_check_ids:
+  - NEW-AGENT-SKILL-SCRIPT
+  expected_severity: P0
+  enabled_by_default: true
+  requires:
+  - envelope
+  guarded_by_boundary: false
+  detect_read_only:
+  - 'static: skill-bundled scripts with curl|bash / eval / exfil URL'
+  finding_if: Skill ships an installer that pipe-to-shells or evals remote code with the agent's privileges.
+  notes: ''
+- id: agent-mcp-unpinned
+  category: c27
+  category_name: AI agent supply chain (skills/MCP)
+  kind: plant
+  resource: mcp.json
+  expected_check_ids:
+  - NEW-AGENT-MCP-PIN
+  expected_severity: P1
+  enabled_by_default: true
+  requires:
+  - envelope
+  guarded_by_boundary: false
+  detect_read_only:
+  - 'static: .cursor/mcp.json servers via npx -y pkg / uvx pkg@latest / git+ without commit SHA'
+  finding_if: 'MCP server package unpinned: a new publish runs under the agent''s credentials next launch.'
+  notes: ''
+- id: agent-mcp-secrets
+  category: c27
+  category_name: AI agent supply chain (skills/MCP)
+  kind: plant
+  resource: mcp.json
+  expected_check_ids:
+  - NEW-AGENT-MCP-SECRETS
+  expected_severity: P1
+  enabled_by_default: true
+  requires:
+  - envelope
+  guarded_by_boundary: false
+  detect_read_only:
+  - 'static: mcp.json env keys matching secret/token/api_key with non-empty values (names only)'
+  finding_if: MCP config hardcodes secret-like env values in the repo.
+  notes: ''
+- id: agent-mcp-broad-fs
+  category: c27
+  category_name: AI agent supply chain (skills/MCP)
+  kind: plant
+  resource: mcp.json
+  expected_check_ids:
+  - NEW-AGENT-MCP-FS
+  expected_severity: P2
+  enabled_by_default: true
+  requires:
+  - envelope
+  guarded_by_boundary: false
+  detect_read_only:
+  - 'static: filesystem MCP args include / or $HOME'
+  finding_if: Filesystem MCP granted the repo root of the machine (/ or home) instead of a narrow workspace path.
   notes: ''

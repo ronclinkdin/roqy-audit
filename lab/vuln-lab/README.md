@@ -153,7 +153,7 @@ python scripts/score.py report.md --enable allow_public,foreign_account --json s
 ממצא אחד מוכיח plant אחד בלבד. כלומר, W2 על פורטים פתוחים לא "מכסה" גם את ה-SG של all-traffic.
 
 ## הרחבה: המעטפת של הענן (Terraform, Kubernetes, Helm, CI/CD)
-Prowler ו-Security Hub מסתכלים על מצב הענן ברגע הבדיקה. הם לא רואים איך הוא נבנה, מה ישתנה ב-deploy הבא, ומה רץ בתוך ה-cluster. ההרחבה הזו שותלת 36 חולשות בקטגוריות c19 עד c25, ומודדת אם roqy-audit תופס אותן.
+Prowler ו-Security Hub מסתכלים על מצב הענן ברגע הבדיקה. הם לא רואים איך הוא נבנה, מה ישתנה ב-deploy הבא, ומה רץ בתוך ה-cluster. ההרחבה הזו שותלת 50 חולשות בקטגוריות c19 עד c27 (36 המעטפת המקורית + 14 שרשרת אספקה של Docker/תלויות וסוכני AI), ומודדת אם roqy-audit תופס אותן.
 
 | קטגוריה | מה נשתל | איפה |
 |---|---|---|
@@ -164,6 +164,8 @@ Prowler ו-Security Hub מסתכלים על מצב הענן ברגע הבדיק�
 | c23 Kubernetes | pod privileged, hostPath `/`, hostNetwork, IMDS נגיש מ-pods (hop limit 2), IRSA ל-role רחב, automount של ה-default SA, בלי NetworkPolicy, cluster-admin ל-ServiceAccount, סוד כ-env, `:latest` מ-Docker Hub, בלי limits | `k8s/plants.yaml` |
 | c24 Helm | values עם סיסמה ומפתח Stripe בטקסט גלוי (נשמרים ב-`sh.helm.release.v1.*`), ConfigMap ו-env עם סודות, helmfile עם repo ב-http בלי אימות ובלי גרסה, image `latest` | `helm/`, `client-repo/deploy/` |
 | c25 שרשראות תקיפה | PR, אחריו apply עם מפתחות admin, ומשם החשבון. pod פרוץ, אחריו IMDS, ה-role של ה-node, ו-S3. state דולף, ממנו סיסמת DB, ומשם RDS ציבורי | מתאם בין הממצאים |
+| c26 Docker ותלויות | `FROM` עם `latest` בלי digest, `curl\|bash` ב-Dockerfile וב-CI, image בסיס EOL, `requirements.txt` בלי pin, `package.json` בלי lockfile, `pip install` לא נעול ב-Dockerfile, Renovate בלי `minimumReleaseAge`, `ADD` מ-URL בלי checksum | `client-repo/Dockerfile`, `requirements.txt`, `package.json`, `renovate.json`, `.github/workflows/docker-build.yml` |
+| c27 שרשרת סוכן AI | skill עם prompt injection / HTML comment / exfil, סקריפט התקנה עם `curl\|bash`, MCP עם `npx -y`/`@latest`/git בלי SHA, סודות מזויפים ב-env, filesystem MCP על `/` | `client-repo/.claude/skills/`, `.cursor/mcp.json`, `.cursor/rules/`, `AGENTS.md` |
 
 כל הסודות מזויפים. ה-role של IRSA מוגבל ב-permissions boundary מסוג deny-all, כך שהוא נראה לאודיט אבל לא עובד בפועל. ל-role של ה-node נוספה קריאת S3 על `*` כדי שהשרשרת pod → IMDS → S3 תהיה אמיתית. אפשר להגיע אליו רק מ-pods על ה-node של המעבדה.
 
@@ -180,7 +182,7 @@ scripts/apply-envelope.sh
 ### הרצת האודיט וניקוד
 ```bash
 python3 lab-run/audit_envelope.py --repo vuln-lab/client-repo --redacted-state lab-run/envelope/client-state.redacted.json
-python3 vuln-lab/scripts/score.py lab-run/envelope/findings-envelope.json --categories c19,c20,c21,c22,c23,c24,c25
+python3 vuln-lab/scripts/score.py lab-run/envelope/findings-envelope.json --categories c19,c20,c21,c22,c23,c24,c25,c26,c27
 ```
 
 ### איך זה נשאר read-only

@@ -154,7 +154,7 @@ The pytest suite does not call AWS.
 
 | Path | What |
 |---|---|
-| `lab/vuln-lab/` | Terraform lab, read-only audit role, envelope plants, sample client repo, `EXPECTED-FINDINGS.yaml` (109 plants) |
+| `lab/vuln-lab/` | Terraform lab, read-only audit role, envelope and supply-chain plants, sample client repo, `EXPECTED-FINDINGS.yaml` (123 plants, 108 on by default) |
 | `lab/lab-run/` | v3 executors (`audit_v3.py`, `audit_envelope.py`) and `checks-v3.yaml` |
 | `lab/harness-loop/` | Propose, probe, compose loop: hidden grader, read-only command guard, editable overlay |
 
