@@ -1,0 +1,4 @@
+replicaCount: 2
+existingSecret: app-db   # reference only
+resources:
+  limits: {cpu: 500m, memory: 256Mi}

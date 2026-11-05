@@ -1,0 +1,6 @@
+version: 1
+checks:
+  W7:
+    severity: P2
+params:
+  NEW-CICD-PR-APPLY.scope: job

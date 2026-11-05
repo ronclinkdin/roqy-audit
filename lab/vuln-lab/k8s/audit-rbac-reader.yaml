@@ -1,0 +1,24 @@
+# Read-only RBAC visibility for the roqy audit role (AmazonEKSViewPolicy cannot list RBAC objects).
+# Grants get/list/watch on RBAC objects ONLY - no Secrets, no exec, no writes.
+# Mapped through the EKS access entry of roqy-audit-sandbox: kubernetes_groups = ["roqy-audit-rbac-read"].
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: roqy-audit-rbac-read
+  labels: {roqy-access: "true"}
+rules:
+- apiGroups: ["rbac.authorization.k8s.io"]
+  resources: ["roles", "rolebindings", "clusterroles", "clusterrolebindings"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: roqy-audit-rbac-read
+  labels: {roqy-access: "true"}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: roqy-audit-rbac-read}
+subjects:
+- {apiGroup: rbac.authorization.k8s.io, kind: Group, name: roqy-audit-rbac-read}

@@ -1,0 +1,32 @@
+# Harness-loop config. Variants = benchmarks the probe runs. Grader settings live in grader/ (hidden from the proposer).
+lab_run: lab/lab-run
+regions: [eu-central-1, us-east-1]
+variants:
+  full:                      # the real vuln lab in sandbox 856114194841, read-only role
+    enabled: true
+    core: true               # audit_v3.py (AWS account checks)
+    envelope: true           # audit_envelope.py (Terraform/CI/Helm/K8s/chains), always live (k8s output is never cached)
+    repo: lab/vuln-lab/client-repo
+    redacted_state: lab/lab-run/envelope/client-state.redacted.json
+    profile: roqy-audit-ro
+    score: {args: []}        # score.py default conditions (s3-account-bpa off: sandbox has account BPA on)
+  clean-repo:                # hardened twin of the client repo: every finding = false positive
+    enabled: true
+    envelope_static: lab/harness-loop/variants/clean-repo
+  clean-account:             # PLACEHOLDER: a second, hardened AWS account with no plants. Every P0/P1 finding = false positive.
+    enabled: false           # turn on after creating profile roqy-audit-clean in the repo-root .auditor-config
+    core: true
+    profile: roqy-audit-clean
+  scale:                     # PLACEHOLDER: same lab, all enabled regions, to measure time/API calls per region
+    enabled: false
+    core: true
+    profile: roqy-audit-ro
+    regions: all
+loop:
+  max_iterations: 3
+  candidate_probe_mode: replay      # core answers from the baseline live run's raw cache (misses fall back to live)
+  final_probe_mode: live            # the composed surface is always re-verified against the real lab
+  accept: {detected: no_drop, severity_mismatch: no_rise, clean_fp: no_rise, untriaged_unmatched: no_rise, guard_violations: zero}
+llm:
+  provider: none                    # none | command
+  command: ""                       # e.g. "python3 my_ollama_proposer.py"  (reads proposer-input JSON on stdin, prints a JSON list of edits)

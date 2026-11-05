@@ -1,0 +1,10 @@
+repositories:
+  - name: bitnami
+    url: https://charts.bitnami.com/bitnami
+    verify: true
+releases:
+  - name: app
+    namespace: app
+    chart: bitnami/nginx
+    version: 18.2.4
+    values: [values-prod.yaml]

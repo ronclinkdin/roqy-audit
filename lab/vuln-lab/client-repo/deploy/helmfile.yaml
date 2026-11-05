@@ -1,0 +1,14 @@
+repositories:
+  # plain http, no signature/provenance verification, nobody owns this domain review
+  - name: community
+    url: http://charts.example-unverified.io/stable
+releases:
+  - name: roqy-lab-payments
+    namespace: roqy-lab-apps
+    chart: ../../helm/roqy-lab-payments   # vendored copy, see vuln-lab/helm
+    values:
+      - values-prod.yaml
+  - name: metrics-sidecar
+    namespace: roqy-lab-apps
+    chart: community/metrics-sidecar      # no version: = whatever is latest on an unverified repo
+    installed: false

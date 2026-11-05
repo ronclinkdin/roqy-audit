@@ -147,6 +147,24 @@ run an infra readiness audit on this repo          # repo layer
 audit the live server, read-only                   # live layer (confirms target first)
 ```
 
+## Vulnerable lab and improvement loop
+
+`lab/` holds a sandbox AWS lab and the loop that scores the audit against it.
+The pytest suite does not call AWS.
+
+| Path | What |
+|---|---|
+| `lab/vuln-lab/` | Terraform lab, read-only audit role, envelope plants, sample client repo, `EXPECTED-FINDINGS.yaml` (109 plants) |
+| `lab/lab-run/` | v3 executors (`audit_v3.py`, `audit_envelope.py`) and `checks-v3.yaml` |
+| `lab/harness-loop/` | Propose, probe, compose loop: hidden grader, read-only command guard, editable overlay |
+
+```bash
+python3 -m pip install pytest pyyaml
+python3 -m pytest -q lab/harness-loop/tests
+```
+
+Live probes need the read-only role from `lab/vuln-lab/access/`. Notes in the lab READMEs are in Hebrew. Coverage gaps versus the skill: `docs/aws-coverage-gaps.md`.
+
 ## Docs
 
 - `docs/AGENT-RUNBOOK.md` — what the agent does, step by step, per client.

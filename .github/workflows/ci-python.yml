@@ -21,3 +21,7 @@ jobs:
         run: find . -name '*.py' | xargs -n1 python3 -m py_compile
       - name: Harness smoke (usage output, no crash)
         run: python3 harness/run_audit_harness.py 2>&1 | head -3
+      - name: Harness-loop tests (no AWS credentials)
+        run: |
+          python3 -m pip install --disable-pip-version-check pytest pyyaml
+          python3 -m pytest -q lab/harness-loop/tests

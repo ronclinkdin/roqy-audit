@@ -1,0 +1,9 @@
+image:
+  repository: docker.io/library/busybox
+  tag: latest
+db:
+  host: roqy-lab-legacy-db
+  user: app
+  password: ""
+stripe:
+  apiKey: ""
