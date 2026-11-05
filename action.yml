@@ -1,0 +1,29 @@
+name: roqy-audit scan
+description: Static repository scan (attack chains, IaC, CI, Docker, agent skills). No cloud credentials and no npx.
+
+inputs:
+  path:
+    description: Directory to scan, relative to the workspace
+    required: false
+    default: "."
+  fail-on:
+    description: Exit 1 when a finding or chain is at least this severe (P0, P1, P2, P3, none)
+    required: false
+    default: P1
+  sarif:
+    description: Where to write SARIF 2.1.0
+    required: false
+    default: roqy-audit.sarif
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      with:
+        python-version: "3.12"
+    - name: Install roqy-audit
+      shell: bash
+      run: python3 -m pip install --disable-pip-version-check "${{ github.action_path }}"
+    - name: Scan
+      shell: bash
+      run: roqy-audit scan "${{ inputs.path }}" --fail-on "${{ inputs.fail-on }}" --sarif "${{ inputs.sarif }}" --md roqy-audit.md
