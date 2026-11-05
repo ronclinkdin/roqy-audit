@@ -1,0 +1,23 @@
+# Which knobs the proposer may move, and to which values. Values outside this catalog are rejected.
+W2.admin_ports:
+  default: [22, 3389, 3306, 5432, 6379, 9200, 27017, 2375, 5601, 8080]
+  alternatives:
+    - [22, 3389, 3306, 5432, 6379, 9200, 27017, 2375, 5601, 8080, 1433, 1521, 11211, 5984, 9042, 2379, 10250, 9090, 15672]
+W3.max_key_age_days:
+  default: 90
+  alternatives: [60, 180]
+W41.ai_bucket_regex:
+  default: 'openai|llm|gpt|bedrock|(^|-)ai(-|$)|ml-|model|rag'
+  alternatives:
+    - 'openai|llm|gpt|bedrock|(^|-)ai(-|$)|ml-|model|rag|embedding|vector|sagemaker|anthropic|claude'
+secret_name_regex:
+  default: '(PASS(WORD)?|SECRET|TOKEN|API_?KEY|PRIVATE|CREDENTIAL|STRIPE|AWS_SECRET)'
+  alternatives:
+    - '(PASS(WORD)?|PASSWD|PWD|SECRET|TOKEN|API_?KEY|PRIVATE|CREDENTIAL|STRIPE|AWS_SECRET|DSN|CONN(ECTION)?_?STR|DATABASE_URL|SIGNING|WEBHOOK)'
+envelope.secret_key_regex:
+  default: 'pass(word|wd)?|secret|token|api[_.-]?key|private[_.-]?key|credential|stripe|dsn'
+  alternatives:
+    - 'pass(word|wd)?|pwd|secret|token|api[_.-]?key|private[_.-]?key|credential|stripe|dsn|database[_.-]?url|conn(ection)?[_.-]?str|webhook|signing'
+NEW-CICD-PR-APPLY.scope:
+  default: workflow
+  alternatives: [job]

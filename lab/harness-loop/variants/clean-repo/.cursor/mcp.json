@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "roqy-lab-fs": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem@0.6.2", "/opt/roqy-lab-clean/app"]
+    },
+    "roqy-lab-fetch": {
+      "command": "uvx",
+      "args": ["mcp-server-fetch==0.1.0"]
+    }
+  }
+}

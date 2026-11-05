@@ -1,0 +1,46 @@
+# Indicative mapping from roqy-audit check ids to SOC 2 Common Criteria.
+# This is a reading aid for questionnaires, not an auditor opinion and not a control test.
+default: [CC6.1]
+checks:
+  NEW-TF-STATE-LOCK: [CC6.1, CC8.1]
+  NEW-TF-HARDCODED-SECRET: [CC6.1, CC6.7]
+  NEW-IAC-MODULE-PIN: [CC8.1]
+  NEW-IAC-PROVIDER-PIN: [CC8.1]
+  NEW-IAC-AMI-OWNERS: [CC6.6, CC8.1]
+  NEW-TF-STATE-SECRETS: [CC6.1, CC6.7]
+  NEW-IAC-LOCKFILE: [CC8.1]
+  NEW-CICD-PERMS: [CC6.1, CC6.3]
+  NEW-CICD-NO-OIDC: [CC6.1, CC6.6]
+  NEW-CICD-PR-APPLY: [CC6.1, CC8.1]
+  NEW-CICD-ACTION-PIN: [CC8.1]
+  NEW-CICD-PRT-HEAD: [CC6.1, CC6.6]
+  NEW-CICD-FORK-SECRETS: [CC6.1, CC6.6]
+  NEW-HELM-REPO: [CC8.1]
+  NEW-DOCKER-FROM-PIN: [CC8.1]
+  NEW-DOCKER-EOL-BASE: [CC7.1, CC8.1]
+  NEW-DOCKER-PIPE-SHELL: [CC6.6, CC8.1]
+  NEW-DOCKER-ADD-REMOTE: [CC8.1]
+  NEW-DOCKER-UNPINNED-INSTALL: [CC8.1]
+  NEW-DOCKER-CVE-OPTIONAL: [CC7.1]
+  NEW-CICD-PIPE-SHELL: [CC6.6, CC8.1]
+  NEW-DEPS-UNPINNED: [CC8.1]
+  NEW-DEPS-NO-LOCKFILE: [CC8.1]
+  NEW-DEPS-UPDATE-HYGIENE: [CC7.1, CC8.1]
+  NEW-AGENT-PROMPT-INJECT: [CC6.1, CC6.6]
+  NEW-AGENT-SKILL-SCRIPT: [CC6.6, CC8.1]
+  NEW-AGENT-MCP-PIN: [CC8.1]
+  NEW-AGENT-MCP-SECRETS: [CC6.1, CC6.7]
+  NEW-AGENT-MCP-FS: [CC6.1, CC6.6]
+  gitleaks: [CC6.1, CC6.7]
+  trivy: [CC7.1]
+  zizmor: [CC6.6, CC8.1]
+  checkov: [CC6.1, CC8.1]
+  osv-scanner: [CC7.1]
+criteria:
+  CC6.1: Logical access — restrict and identify who can reach systems and data.
+  CC6.3: Least privilege — access is limited to what the role needs.
+  CC6.6: Boundaries — external and untrusted input does not become trusted execution.
+  CC6.7: Restricted data — secrets and credentials are not stored or copied in the clear.
+  CC7.1: Detection — vulnerabilities and changes are noticed, not only prevented.
+  CC8.1: Change control — what runs in production is pinned, reviewed, and attributable.
+  CC9.2: Vendor and supply risk — third-party code and tools are identified and constrained.

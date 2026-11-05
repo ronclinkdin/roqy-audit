@@ -1,0 +1,13 @@
+sandbox_account_id = "123456789012" # REQUIRED: the empty sandbox account
+aws_profile        = "roqy-sandbox-admin"
+region             = "eu-central-1"
+second_region      = "us-east-1"
+
+# foreign_account_id = ""   # optional 2nd account Ron owns, enables real cross-account plants
+# allow_public       = false # DANGER: see README
+# instance_state     = "running"  # none | stopped | running
+# create_weak_trail  = false
+# dns_zone_type      = "private"
+# enable_rds         = true
+# enable_eks         = true
+# eks_version        = null    # set "1.30" etc. to plant eks-old-version (+~$365/mo extended support)

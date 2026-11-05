@@ -1,0 +1,109 @@
+# roqy vuln-lab ENVELOPE: Kubernetes workload plants (namespace roqy-lab-apps). Apply ONLY with
+#   kubectl --context roqy-lab-admin apply -f k8s/plants.yaml
+# Tiny images, 5 pods total (t4g.small node allows 11 pods). All secrets FAKE.
+# IRSA role ARN placeholder __IRSA_ROLE_ARN__ is filled by scripts/apply-envelope.sh.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: roqy-lab-apps
+  labels: {roqy-lab: "true"}
+  # PLANT k8s-no-networkpolicy: no NetworkPolicy objects in this namespace (and no default-deny)
+  # PLANT k8s-default-sa-automount: default SA keeps automountServiceAccountToken (unset = true)
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: roqy-lab-billing-db
+  namespace: roqy-lab-apps
+type: Opaque
+stringData:
+  DB_PASSWORD: FAKE-K8s-Pa55w0rd-roqy-lab
+---
+# PLANT k8s-irsa-broad-role: SA bound (IRSA) to roqy-lab-irsa-billing (s3:*, dynamodb:*, sqs:* on *)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: billing-sa
+  namespace: roqy-lab-apps
+  annotations:
+    eks.amazonaws.com/role-arn: __IRSA_ROLE_ARN__
+---
+# PLANT k8s-sa-cluster-admin: a workload SA bound to cluster-admin (any pod using it owns the cluster)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ci-deployer
+  namespace: roqy-lab-apps
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: roqy-lab-ci-deployer-admin
+  labels: {roqy-lab: "true"}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: cluster-admin}
+subjects:
+- {kind: ServiceAccount, name: ci-deployer, namespace: roqy-lab-apps}
+---
+# PLANT k8s-privileged-pod + k8s-latest-public-image + k8s-no-limits
+apiVersion: v1
+kind: Pod
+metadata:
+  name: roqy-lab-priv-debug
+  namespace: roqy-lab-apps
+  labels: {app: priv-debug}
+spec:
+  containers:
+  - name: debug
+    image: docker.io/library/busybox:latest
+    command: ["sleep", "infinity"]
+    securityContext: {privileged: true}
+---
+# PLANT k8s-hostpath-root (also uses the default SA -> default-sa-automount evidence)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: roqy-lab-log-shipper
+  namespace: roqy-lab-apps
+  labels: {app: log-shipper}
+spec:
+  containers:
+  - name: shipper
+    image: docker.io/library/busybox:1.37
+    command: ["sleep", "infinity"]
+    resources: {limits: {cpu: 50m, memory: 32Mi}, requests: {cpu: 10m, memory: 16Mi}}
+    volumeMounts: [{name: host, mountPath: /host}]
+  volumes:
+  - name: host
+    hostPath: {path: /}
+---
+# PLANT k8s-hostnetwork (node IMDS, kubelet and every host port without hop limits)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: roqy-lab-net-probe
+  namespace: roqy-lab-apps
+  labels: {app: net-probe}
+spec:
+  hostNetwork: true
+  automountServiceAccountToken: false
+  containers:
+  - name: probe
+    image: registry.k8s.io/pause:3.10
+    resources: {limits: {cpu: 20m, memory: 16Mi}, requests: {cpu: 5m, memory: 8Mi}}
+---
+# PLANT k8s-secret-env (secretKeyRef -> env; ends up in /proc/*/environ, crash dumps, `env` debug output)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: roqy-lab-billing
+  namespace: roqy-lab-apps
+  labels: {app: billing}
+spec:
+  serviceAccountName: billing-sa
+  containers:
+  - name: billing
+    image: registry.k8s.io/pause:3.10
+    resources: {limits: {cpu: 20m, memory: 16Mi}, requests: {cpu: 5m, memory: 8Mi}}
+    env:
+    - name: DB_PASSWORD
+      valueFrom: {secretKeyRef: {name: roqy-lab-billing-db, key: DB_PASSWORD}}

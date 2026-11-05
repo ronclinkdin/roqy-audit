@@ -1,41 +1,53 @@
-# Client Onboarding — AWS read-only identity (screen by screen)
+# Client onboarding — AWS cross-account audit role (no static keys)
 
-Send this to the client. Takes them 10 minutes. They keep admin, we get eyes only.
+Send this to the client. They click once, we assume the role with an ExternalId
+only they know. No IAM user, no access key, nothing to rotate or leak.
+This is the same pattern we audit for (W3, W10): static keys are a finding.
 
-## Step 1: IAM user
+## Step 1: One-click CloudFormation
 
-1. AWS Console → IAM → Users → **Create user**.
-2. Name: `roqy-audit`. Console access: **unchecked** (we never log in to the console).
-3. Permissions: **Attach policies directly** → select `SecurityAudit`.
-   - Alternative: `ReadOnlyAccess` (wider). `SecurityAudit` is enough for the audit.
-4. Review → Create user.
+1. Client opens the CloudFormation "Create stack" link we send (template:
+   `cloudformation/audit-role.yaml` in this repo).
+2. One parameter: the ExternalId (we generate a random string per client and
+   send it over the agreed secure channel).
+3. Client checks "I acknowledge that AWS CloudFormation might create IAM
+   resources" and creates the stack.
 
-## Step 2: Access key
+What the stack creates:
 
-1. Open the new user → **Security credentials** tab.
-2. **Create access key** → use case: **Third-party service**.
-3. Copy the Access Key ID and Secret. Send them to us over the agreed secure
-   channel (never email, never chat plaintext). We store them in our key vault,
-   encrypted, bound to the audit run.
+- Role `roqy-audit-<client>` in the client's account.
+- Trust policy: Principal = our audit account's role, Condition
+  `sts:ExternalId` = the client's ExternalId. Nobody else can assume it, and a
+  stolen ExternalId alone is useless without our role ARN.
+- Attached policies: `SecurityAudit` + `ViewOnlyAccess`. Read-only by AWS's
+  own definition, plus explicit Deny on every write action as belt and
+  suspenders.
 
-## Step 3: What we do with it
+## Step 2: What we do with it
 
-1. `aws sts get-caller-identity` — shows the identity we will use. We send you
-   this output and wait for your explicit yes before any live call.
-2. Every command we run is `list` / `describe` / `get`. Nothing else.
-3. After the audit you can delete the user, or keep it for recurring audits
-   (recommended: rotate the key every 90 days).
+1. `aws sts assume-role --role-arn <client-role-arn> --external-id <id>` —
+   temporary credentials, auto-expiring, never stored.
+2. Every command we run is `list` / `get` / `describe`. The full command log
+   is delivered to the client after the audit.
+3. The ExternalId is single-client. Compromise of one client's ExternalId
+   grants nothing on any other client.
 
-## Step 4: Optional hardening (recommended)
+## Step 3: Offboarding
 
-- IAM → Policies → create `roqy-audit-deny` with `Deny` on `*:*` for
-  `aws:PrincipalArn` = the audit user, scoped to write actions — belt and suspenders.
-- Set a permissions boundary on the user so even a policy mistake cannot grant write.
+Client deletes the CloudFormation stack. The role and its permissions vanish.
+Nothing to rotate, nothing left in our vault.
 
 ## GCP variant
 
-1. IAM & Admin → Service Accounts → Create `roqy-audit`.
-2. Grant roles: `roles/viewer` + `roles/iam.securityReviewer`.
-3. Keys → Add key → JSON → send securely.
-4. We run `gcloud config list` + `gcloud auth activate-service-account` and show
-   you the identity before the first live call.
+No JSON keys. The client grants `roles/viewer` + `roles/iam.securityReviewer`
+to a principal from our Google Cloud identity via Workload Identity
+Federation, or (simplest for small clients) we run the audit from a session
+the client creates: `gcloud auth login` on a machine they control, or a
+short-lived federated token. We never hold a downloadable key file.
+
+## Why not an IAM user with a key?
+
+Because that is finding W3 in our own audit: long-lived access keys are the
+most leaked credential class in the public record (Truffle 2026: 9,300 live
+keys in public repos). Asking the client to create one for us would make the
+onboarding the first violation of the audit.

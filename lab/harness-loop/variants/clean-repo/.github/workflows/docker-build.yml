@@ -1,0 +1,12 @@
+name: docker-build
+on:
+  push:
+    paths: ["Dockerfile", "app/**"]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: docker build -t roqy-lab-web:1.0.0 .

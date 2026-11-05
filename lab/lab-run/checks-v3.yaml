@@ -1,0 +1,697 @@
+version: 3
+generated: '2026-11-04'
+validated_against: roqy vuln-lab (sandbox), read-only role SecurityAudit+ViewOnlyAccess+explicit deny
+run_rules:
+  regions: 'Loop every enabled region: R in $(aws ec2 describe-regions --query ''Regions[].RegionName'' --output text). Global checks (IAM, S3 bucket list, Route53, Organizations, account) run once.'
+  pagination: AWS CLI v2 auto-paginates list/describe calls. Do NOT pass --max-items/--no-paginate in audit runs (silent truncation). For counts on huge accounts use --page-size 100 to avoid timeouts; never
+    use head/tail on JSON.
+  throttling: export AWS_RETRY_MODE=adaptive AWS_MAX_ATTEMPTS=10; run regions in parallel (<=4), resources within a region sequentially.
+  secrets: 'Never print values. Lambda env, CodeBuild PLAINTEXT env, ECS env and user-data are readable by SecurityAudit/ViewOnly: extract NAMES locally, discard values.'
+  output: raw JSON per command to raw/<check>-<region>.json; findings.json is generated from raw files, report last.
+audit_role_missing_permissions:
+- ce:GetReservationUtilization (opt-in, not needed for any check)
+checks:
+- id: W1
+  title: Public S3 buckets
+  scope: global
+  commands:
+  - aws s3api list-buckets --query 'Buckets[].Name'
+  - 'per bucket: aws s3api get-bucket-policy-status --bucket $B   # NoSuchBucketPolicy = not public via policy'
+  finding_if: PolicyStatus.IsPublic=true
+  severity: P0
+  changed_from_v2: anonymous curl needs a real object key; dropped from the default path (opt-in network probe, status code only)
+- id: W2
+  title: World-open security groups
+  scope: regional
+  commands:
+  - 'aws ec2 describe-security-groups --region $R   # full output, filter locally'
+  - aws ec2 describe-network-interfaces --region $R --query 'NetworkInterfaces[?Association.PublicIp].Groups[].GroupId'
+  finding_if: Any IpPermission with IpRanges[].CidrIp=0.0.0.0/0 OR Ipv6Ranges[].CidrIpv6=::/0 where IpProtocol=-1 (all traffic, separate finding) or tcp range covering 22/3389/3306/5432/6379/9200/27017/2375/5601/8080.
+    Attached to a public ENI = confirmed P1, else needs_validation.
+  severity: P1
+  changed_from_v2: v2 JMESPath used Ipv6Ranges[?CidrIp] (never matches) and only IpProtocol==tcp (misses -1 all-traffic)
+- id: W3
+  title: Old access keys
+  scope: global
+  commands:
+  - aws iam list-users
+  - aws iam list-access-keys --user-name $U
+  finding_if: Active key CreateDate > 90 days
+  severity: P2
+- id: W4
+  title: Root MFA
+  scope: global
+  commands:
+  - aws iam get-account-summary --query SummaryMap.AccountMFAEnabled
+  finding_if: '0'
+  severity: P0
+- id: W5
+  title: Account S3 Block Public Access
+  scope: global
+  commands:
+  - aws s3control get-public-access-block --account-id $ACCOUNT
+  finding_if: NoSuchPublicAccessBlockConfiguration OR any of the four flags false
+  severity: P2
+  changed_from_v2: v2 only flagged NoSuch...; an existing config with all flags false was missed
+- id: W6
+  title: CloudTrail present
+  scope: regional
+  commands:
+  - aws cloudtrail describe-trails --include-shadow-trails --region $R
+  finding_if: No trail in any region
+  severity: P1
+  changed_from_v2: loop every enabled region (a multi-region trail shows up as a shadow trail)
+- id: W7
+  title: Budgets
+  scope: global
+  commands:
+  - aws budgets describe-budgets --account-id $ACCOUNT
+  finding_if: describe-budgets returns no Budgets (CLI prints nothing at all when there are none)
+  severity: P2
+  harness_loop: 'harness-loop 20261104-220104 it1: severity P1 -> P2'
+  permissions: granted by RoqyReadOnlyExtras
+- id: W8
+  title: GuardDuty / Config
+  scope: regional
+  commands:
+  - aws guardduty list-detectors --region $R
+  - aws configservice describe-configuration-recorder-status --region $R
+  finding_if: No detector in any region -> finding; no RECORDING recorder in any region -> separate finding
+  severity: P2
+  changed_from_v2: v2 required BOTH empty for one finding; now two findings and recorder must be recording
+- id: W9
+  title: EKS public endpoint
+  scope: regional
+  commands:
+  - aws eks list-clusters --region $R
+  - aws eks describe-cluster --name $C --region $R --query 'cluster.resourcesVpcConfig.{pub:endpointPublicAccess,cidrs:publicAccessCidrs}'
+  finding_if: pub=true and 0.0.0.0/0 in cidrs
+  severity: P1
+- id: W10
+  title: Risky role trust
+  scope: global
+  commands:
+  - 'aws iam list-roles   # AssumeRolePolicyDocument is inline in the output'
+  finding_if: Principal * (P0) or AWS principal in another account (P1)
+  severity: P0/P1
+- id: W11
+  title: Dormant / never-used keys
+  scope: global
+  commands:
+  - aws iam get-user --user-name $U --query User.PasswordLastUsed
+  - aws iam get-access-key-last-used --access-key-id $K
+  finding_if: Active key with no LastUsedDate (never used) or last use > 90 days
+  severity: P2
+  changed_from_v2: explicitly flag never-used keys (fresh unused admin key)
+- id: W12
+  title: EC2 key pairs
+  scope: regional
+  commands:
+  - aws ec2 describe-key-pairs --region $R
+  finding_if: Key pairs outside known provisioning (needs client input)
+  severity: needs_validation
+- id: W13
+  title: Lambda code drift
+  scope: regional
+  commands:
+  - aws lambda list-functions --region $R --query 'Functions[].{f:FunctionName,m:LastModified}'
+  finding_if: LastModified outside deploy history (needs client input)
+  severity: needs_validation
+- id: W14
+  title: VPC endpoint policies
+  scope: regional
+  commands:
+  - aws ec2 describe-vpc-endpoints --region $R --query 'VpcEndpoints[].{id:VpcEndpointId,p:PolicyDocument}'
+  finding_if: Default full-access policy
+  severity: P2
+- id: W15
+  title: IMDSv1 on instances
+  scope: regional
+  commands:
+  - aws ec2 describe-instances --region $R --query 'Reservations[].Instances[?State.Name!=`terminated`].{i:InstanceId,n:Tags[?Key==`Name`]|[0].Value,t:MetadataOptions.HttpTokens,h:MetadataOptions.HttpPutResponseHopLimit,p:IamInstanceProfile.Arn}'
+  finding_if: HttpTokens=optional
+  severity: P1
+- id: W16
+  title: SCP coverage
+  scope: global
+  commands:
+  - aws organizations describe-organization
+  - aws organizations list-accounts
+  - aws organizations list-policies-for-target --target-id $ACC --filter SERVICE_CONTROL_POLICY
+  finding_if: AWSOrganizationsNotInUse -> not_applicable; accounts with only FullAWSAccess
+  severity: P2
+- id: W17
+  title: Lambda runtime EOL
+  scope: regional
+  commands:
+  - aws lambda list-functions --region $R --query 'Functions[].{f:FunctionName,r:Runtime}'
+  finding_if: Runtime in AWS deprecation list (keep a dated table in the repo)
+  severity: P2
+- id: W18
+  title: EKS version
+  scope: regional
+  commands:
+  - aws eks describe-cluster --name $C --region $R --query cluster.version
+  - aws eks describe-cluster-versions --region $R --query 'clusterVersions[].{v:clusterVersion,s:versionStatus,end:endOfStandardSupportDate}'
+  finding_if: versionStatus EXTENDED_SUPPORT or end of standard support < 90 days
+  severity: P2
+  changed_from_v2: v2 had no EOL source; describe-cluster-versions gives it
+- id: W19
+  title: Own AMI age
+  scope: regional
+  commands:
+  - aws ec2 describe-images --owners self --region $R --query 'Images[].{id:ImageId,n:Name,d:CreationDate,pub:Public}'
+  finding_if: CreationDate > 12 months
+  severity: P2
+- id: W20
+  title: RDS running engine EOL
+  scope: regional
+  commands:
+  - aws rds describe-db-instances --region $R --query 'DBInstances[].{i:DBInstanceIdentifier,e:Engine,v:EngineVersion}'
+  - 'aws rds describe-db-major-engine-versions --engine $E --region $R   # support dates'
+  finding_if: RUNNING major version past or within 6 months of end of standard support
+  severity: P2
+  changed_from_v2: v2 listed OFFERED versions (describe-db-engine-versions) and never looked at running instances
+- id: W21
+  title: ACM expiry
+  scope: regional
+  commands:
+  - aws acm list-certificates --region $R --includes keyTypes=RSA_2048,RSA_3072,RSA_4096,EC_prime256v1,EC_secp384r1
+  - aws acm describe-certificate --certificate-arn $A --region $R --query Certificate.NotAfter
+  finding_if: NotAfter < 30 days
+  severity: P1
+- id: W22
+  title: RI / Savings Plans end (opt-in, Cost Explorer is billed per call)
+  scope: global
+  commands:
+  - aws ce get-reservation-utilization --time-period Start=$(date -d '-30 days' +%F),End=$(date +%F)
+  - aws savingsplans describe-savings-plans --states active
+  finding_if: Plan ends < 90 days
+  severity: P2
+  changed_from_v2: v2 command was missing required --time-period; now opt-in
+  extra_permissions_needed: ce:GetReservationUtilization, savingsplans:DescribeSavingsPlans (not in role)
+- id: W23
+  title: Cost anomaly detection
+  scope: global
+  commands:
+  - aws ce get-anomaly-monitors
+  - aws ce get-anomaly-subscriptions
+  finding_if: No monitor, OR AccessDenied 'User not enabled for cost explorer access' (Cost Explorer never enabled => no monitor can exist)
+  severity: P2
+  changed_from_v2: v2 used `get-anomaly-detectors` which does not exist
+  permissions: granted by RoqyReadOnlyExtras
+- id: W24
+  title: iam:PassRole on *
+  scope: global
+  commands:
+  - 'aws iam get-account-authorization-details   # users, groups, roles, inline + managed, paginated'
+  finding_if: Allow iam:PassRole (or iam:*) with Resource * on any user/group/role
+  severity: P1
+  changed_from_v2: v2 read only ROLE attached policies; misses users, groups and inline
+- id: W25
+  title: NotAction allow
+  scope: global
+  commands:
+  - (same get-account-authorization-details output)
+  finding_if: Allow with NotAction
+  severity: P2
+- id: W26
+  title: Cross-account KMS / Secrets
+  scope: regional
+  commands:
+  - aws kms list-aliases --region $R
+  - aws kms get-key-policy --key-id $K --region $R
+  - aws secretsmanager list-secrets --region $R
+  - aws secretsmanager get-resource-policy --secret-id $S --region $R
+  finding_if: Principal in another account
+  severity: P1
+  changed_from_v2: get-key-policy --policy-name is optional in CLI 2.x
+- id: W27
+  title: S3 notification to foreign account
+  scope: global
+  commands:
+  - aws s3api get-bucket-notification-configuration --bucket $B
+  finding_if: Target ARN owned by another account
+  severity: P1
+- id: W28
+  title: Session Manager logging
+  scope: regional
+  commands:
+  - aws ssm get-document --name SSM-SessionManagerRunShell --region $R --query Content
+  finding_if: Document missing or no s3BucketName/cloudWatchLogGroupName/kmsKeyId
+  severity: P2
+  changed_from_v2: v2 command `ssm describe-document-permissions` needs --name and --permission-type and does not show preferences
+  extra_permissions_needed: ssm:GetDocument (denied for the audit role)
+- id: W29
+  title: Trail is multi-region
+  scope: regional
+  commands:
+  - (from W6 output) IsMultiRegionTrail
+  finding_if: 'false'
+  severity: P1
+- id: W30
+  title: ECR public pull
+  scope: regional
+  commands:
+  - aws ecr describe-repositories --region $R
+  - 'aws ecr get-repository-policy --repository-name $N --region $R   # RepositoryPolicyNotFound = ok'
+  finding_if: Principal *
+  severity: P1
+- id: W31
+  title: Trust without ExternalId
+  scope: global
+  commands:
+  - (from W10 output)
+  finding_if: AWS principal :root of another account, OR of this account with no ExternalId/PrincipalArn condition
+  severity: P1
+  changed_from_v2: v2 only considered foreign accounts
+- id: W32
+  title: EBS default encryption
+  scope: regional
+  commands:
+  - aws ec2 get-ebs-encryption-by-default --region $R
+  finding_if: 'false'
+  severity: P2
+- id: W33
+  title: S3 world write
+  scope: global
+  commands:
+  - aws s3api get-bucket-policy --bucket $B
+  finding_if: Allow s3:PutObject/s3:* to Principal * without condition
+  severity: P0
+- id: W34
+  title: Shared snapshots
+  scope: regional
+  commands:
+  - aws ec2 describe-snapshots --owner-ids self --region $R
+  - aws ec2 describe-snapshot-attribute --snapshot-id $S --attribute createVolumePermission --region $R
+  - aws rds describe-db-snapshots --region $R
+  - aws rds describe-db-snapshot-attributes --db-snapshot-identifier $S --region $R
+  finding_if: group all (P0) or another account (P1)
+  severity: P0/P1
+- id: W35
+  title: ECS exposure
+  scope: regional
+  commands:
+  - aws ecs list-task-definitions --status ACTIVE --region $R
+  - aws ecs describe-task-definition --task-definition $T --region $R
+  - aws ecs list-clusters --region $R
+  - aws ecs list-services --cluster $C --region $R
+  - aws ecs describe-services --cluster $C --services $S1..$S10 --region $R
+  finding_if: privileged container, host network / hostPort
+  severity: P1/P2
+  changed_from_v2: v2 `describe-services` lacked required --services
+- id: W36
+  title: SES abuse surface
+  scope: regional
+  commands:
+  - aws sesv2 get-account --region $R
+  - aws sesv2 list-email-identities --region $R
+  finding_if: ProductionAccessEnabled with identities; sandbox SES = needs_validation info
+  severity: P2/P3
+- id: W37
+  title: Secrets rotation
+  scope: regional
+  commands:
+  - aws secretsmanager list-secrets --region $R --query 'SecretList[].{n:Name,r:RotationEnabled,c:CreatedDate}'
+  finding_if: RotationEnabled false
+  severity: P3
+- id: W38
+  title: AuthenticatedUsers grants
+  scope: global
+  commands:
+  - aws s3api get-bucket-acl --bucket $B
+  - (W33 bucket policy)
+  finding_if: Grantee AuthenticatedUsers/AllUsers
+  severity: P1
+  changed_from_v2: v2 described it but gave no command for ACLs
+- id: W39
+  title: Secrets in public build artifacts
+  scope: global
+  commands:
+  - 'not an AWS API check: needs the client''s public URLs'
+  finding_if: AKIA/sk-/ghp_ in shipped JS
+  severity: P0
+  notes: not_applicable in an AWS-only run
+- id: W40
+  title: Root access keys
+  scope: global
+  commands:
+  - aws iam get-account-summary --query SummaryMap.AccountAccessKeysPresent
+  finding_if: '1'
+  severity: P0
+- id: W41
+  title: AI-named buckets
+  scope: global
+  commands:
+  - aws s3api list-buckets --query 'Buckets[].Name'
+  finding_if: name matches openai|llm|gpt|bedrock|(^|-)ai(-|$)|ml-|model|rag
+  severity: P3
+  changed_from_v2: added `rag`; avoid `s3 ls | grep` which also matched dates
+- id: W42
+  title: ALB host-header routing
+  scope: regional
+  commands:
+  - aws elbv2 describe-load-balancers --region $R
+  - aws elbv2 describe-listeners --load-balancer-arn $L --region $R
+  - aws elbv2 describe-rules --listener-arn $X --region $R
+  finding_if: Host-header rule to internal target
+  severity: P1
+- id: W43
+  title: Lambda Function URL without auth
+  scope: regional
+  commands:
+  - aws lambda list-functions --region $R
+  - aws lambda list-function-url-configs --function-name $F --region $R
+  finding_if: AuthType NONE
+  severity: P1
+  changed_from_v2: v2 called list-function-url-configs without the required --function-name
+- id: W44
+  title: Open SNS/SQS
+  scope: regional
+  commands:
+  - aws sns list-topics --region $R
+  - aws sns get-topic-attributes --topic-arn $T --region $R --query Attributes.Policy
+  - aws sqs list-queues --region $R
+  - aws sqs get-queue-attributes --queue-url $Q --attribute-names Policy --region $R
+  finding_if: Allow to Principal * without Condition
+  severity: P2
+- id: W45
+  title: Log retention
+  scope: regional
+  commands:
+  - aws logs describe-log-groups --region $R --query 'logGroups[?retentionInDays==null].logGroupName'
+  finding_if: retentionInDays null
+  severity: P3
+- id: NEW-KEY-QUARANTINE
+  title: AWS quarantined a leaked key
+  scope: global
+  commands:
+  - aws iam list-entities-for-policy --policy-arn arn:aws:iam::aws:policy/AWSCompromisedKeyQuarantineV2
+  - aws iam list-entities-for-policy --policy-arn arn:aws:iam::aws:policy/AWSCompromisedKeyQuarantineV3
+  finding_if: Any attached user/role
+  severity: P0
+- id: NEW-CONSOLE-NO-MFA
+  title: Console users without MFA
+  scope: global
+  commands:
+  - aws iam generate-credential-report
+  - aws iam get-credential-report --query Content --output text | base64 -d
+  finding_if: password_enabled=true and mfa_active=false
+  severity: P1
+  notes: generate-credential-report is allowed by SecurityAudit; poll get-credential-report until ready
+- id: NEW-PASSWORD-POLICY
+  title: No password policy
+  scope: global
+  commands:
+  - aws iam get-account-password-policy
+  finding_if: NoSuchEntity
+  severity: P2
+- id: NEW-SSO-ABSENT
+  title: No IAM Identity Center
+  scope: regional
+  commands:
+  - aws sso-admin list-instances --region $HOME_REGION
+  finding_if: No instance while IAM users have console passwords
+  severity: P3
+- id: NEW-IMDS-LAUNCH-TEMPLATE
+  title: Launch templates allow IMDSv1
+  scope: regional
+  commands:
+  - aws ec2 describe-launch-templates --region $R
+  - aws ec2 describe-launch-template-versions --launch-template-id $LT --versions '$Latest' --region $R --query 'LaunchTemplateVersions[].LaunchTemplateData.MetadataOptions'
+  finding_if: HttpTokens missing or optional
+  severity: P2
+- id: NEW-IMDS-ACCOUNT-DEFAULT
+  title: Account IMDS default
+  scope: regional
+  commands:
+  - aws ec2 get-instance-metadata-defaults --region $R
+  finding_if: AccountLevel.HttpTokens != required
+  severity: P3
+- id: NEW-IAM-PRIVESC
+  title: IAM privilege-escalation primitives
+  scope: global
+  commands:
+  - aws iam get-account-authorization-details
+  finding_if: Allow on * of CreatePolicyVersion/SetDefaultPolicyVersion/UpdateAssumeRolePolicy/Attach*Policy/Put*Policy/CreateAccessKey/CreateLoginProfile/UpdateLoginProfile/AddUserToGroup/ssm:SendCommand,
+    or PassRole + lambda:Create*/ec2:RunInstances
+  severity: P1
+- id: NEW-WILDCARD-ADMIN
+  title: Workload role with Action * Resource *
+  scope: global
+  commands:
+  - aws iam get-account-authorization-details --filter Role
+  finding_if: Non-admin-named role (esp. instance profile / Lambda / CI role) with Allow * on *
+  severity: P1
+- id: NEW-S3-CROSS-ACCOUNT
+  title: Bucket policy grants another account
+  scope: global
+  commands:
+  - aws s3api get-bucket-policy --bucket $B
+  finding_if: Principal ARN with foreign account id
+  severity: P1
+- id: NEW-S3-RANSOMWARE
+  title: No versioning / Object Lock
+  scope: global
+  commands:
+  - aws s3api get-bucket-versioning --bucket $B
+  - aws s3api get-object-lock-configuration --bucket $B
+  finding_if: Versioning != Enabled and no Object Lock on data buckets
+  severity: P1
+- id: NEW-S3-SSEC
+  title: SSE-C writes allowed
+  scope: global
+  commands:
+  - aws s3api get-bucket-encryption --bucket $B --query 'ServerSideEncryptionConfiguration.Rules[].BlockedEncryptionTypes'
+  finding_if: SSE-C not in BlockedEncryptionTypes (Codefinger 2025)
+  severity: P1
+  notes: needs AWS CLI >= 2.31 for BlockedEncryptionTypes; older CLIs silently omit the field
+- id: NEW-S3-LIFECYCLE-EXPIRY
+  title: Whole-bucket short expiration
+  scope: global
+  commands:
+  - aws s3api get-bucket-lifecycle-configuration --bucket $B
+  finding_if: Enabled rule with empty filter and Expiration.Days <= 7
+  severity: P2
+- id: NEW-BACKUP-VAULT-LOCK
+  title: No locked backup vault
+  scope: regional
+  commands:
+  - aws backup list-backup-vaults --region $R --query 'BackupVaultList[].{n:BackupVaultName,l:Locked}'
+  finding_if: No vault with Locked=true
+  severity: P2
+- id: NEW-UNENCRYPTED-SNAPSHOT
+  title: Unencrypted snapshots
+  scope: regional
+  commands:
+  - aws ec2 describe-snapshots --owner-ids self --region $R --query 'Snapshots[?Encrypted==`false`].[SnapshotId,Tags]'
+  finding_if: Any
+  severity: P2
+- id: NEW-PUBLIC-AMI
+  title: Public own AMI
+  scope: regional
+  commands:
+  - aws ec2 describe-images --owners self --region $R --query 'Images[?Public==`true`].Name'
+  finding_if: Any
+  severity: P0
+- id: NEW-SNAPSHOT-BPA
+  title: Snapshot / AMI Block Public Access
+  scope: regional
+  commands:
+  - aws ec2 get-snapshot-block-public-access-state --region $R
+  - aws ec2 get-image-block-public-access-state --region $R
+  finding_if: unblocked
+  severity: P3
+- id: NEW-OIDC-NO-SUB
+  title: GitHub OIDC trust open to any repo
+  scope: global
+  commands:
+  - aws iam list-open-id-connect-providers
+  - aws iam list-roles --query "Roles[?contains(to_string(AssumeRolePolicyDocument),'token.actions.githubusercontent.com')]"
+  finding_if: No :sub condition, or sub = *, repo:*, repo:*/* , repo:*:*
+  severity: P0
+  notes: AWS now rejects NEW roles with no sub at all, but accepts sub=repo:* and old roles keep the no-sub trust
+- id: NEW-BEDROCK-LOGGING
+  title: Bedrock invocation logging off
+  scope: regional
+  commands:
+  - aws bedrock get-model-invocation-logging-configuration --region $R
+  finding_if: No loggingConfig in any region
+  severity: P2
+- id: NEW-DANGLING-DNS
+  title: Dangling CNAMEs
+  scope: global
+  commands:
+  - aws route53 list-hosted-zones
+  - aws route53 list-resource-record-sets --hosted-zone-id $Z
+  - 'aws s3api head-bucket --bucket $NAME   # 404 = claimable'
+  - 'aws elasticbeanstalk check-dns-availability --cname-prefix $P --region $R   # Available=true = claimable'
+  - 'fallback: DNS lookup of the target (NXDOMAIN)'
+  finding_if: CNAME to a non-existent S3 bucket / free EB prefix / unresolvable cloud target
+  severity: P1
+  permissions: granted by RoqyReadOnlyExtras
+- id: NEW-ALLOWED-AMIS
+  title: Allowed AMIs off (whoAMI)
+  scope: regional
+  commands:
+  - aws ec2 get-allowed-images-settings --region $R
+  finding_if: State disabled
+  severity: P3
+- id: NEW-CODEBUILD
+  title: CodeBuild privileged / plaintext secrets
+  scope: regional
+  commands:
+  - aws codebuild list-projects --region $R
+  - aws codebuild batch-get-projects --names $P1..$P100 --region $R --query 'projects[].{n:name,p:environment.privilegedMode,e:environment.environmentVariables[].{n:name,t:type}}'
+  finding_if: privilegedMode or PLAINTEXT env with secret-like name (report names only)
+  severity: P1
+- id: NEW-CODEBUILD-WEBHOOK
+  title: Unanchored webhook actor filter
+  scope: regional
+  commands:
+  - (batch-get-projects) webhook.filterGroups
+  finding_if: ACTOR_ACCOUNT_ID pattern without ^...$ (CodeBreach 2025)
+  severity: P1
+- id: NEW-LAMBDA-ENV-SECRETS
+  title: Secrets in Lambda env
+  scope: regional
+  commands:
+  - aws lambda list-functions --region $R --query 'Functions[].{f:FunctionName,env:keys(Environment.Variables||`{}`)}'
+  finding_if: secret-like var names
+  severity: P1
+  notes: never print values; the role CAN read the values via list-functions
+- id: NEW-LAMBDA-PUBLIC-POLICY
+  title: Lambda policy Principal *
+  scope: regional
+  commands:
+  - aws lambda get-policy --function-name $F --region $R
+  finding_if: Principal * without SourceArn/SourceAccount/PrincipalOrgID
+  severity: P1
+- id: NEW-APIGW-NO-AUTH
+  title: Privileged API routes without auth
+  scope: regional
+  commands:
+  - aws apigatewayv2 get-apis --region $R
+  - aws apigatewayv2 get-routes --api-id $A --region $R --query 'Items[].{r:RouteKey,a:AuthorizationType}'
+  - aws apigateway get-rest-apis --region $R
+  finding_if: AuthorizationType NONE on admin/refund/internal/delete/debug/payment routes
+  severity: P2
+- id: NEW-ECS-ENV-SECRETS
+  title: Secrets in ECS task env
+  scope: regional
+  commands:
+  - aws ecs describe-task-definition --task-definition $T --region $R --query 'taskDefinition.containerDefinitions[].environment[].name'
+  finding_if: secret-like names in environment (should be secrets:)
+  severity: P1
+- id: NEW-SSM-PLAINTEXT
+  title: Secret-named String parameters
+  scope: regional
+  commands:
+  - aws ssm describe-parameters --region $R --query "Parameters[?Type=='String'].Name"
+  finding_if: Type String with password/secret/key/token name; never call get-parameter
+  severity: P2
+- id: NEW-USERDATA-SECRETS
+  title: Secrets in user-data
+  scope: regional
+  commands:
+  - aws ec2 describe-launch-template-versions ... LaunchTemplateData.UserData
+  - aws ec2 describe-instance-attribute --instance-id $I --attribute userData --region $R
+  finding_if: decoded locally; secret-like assignments, names only
+  severity: P2
+- id: NEW-EKS-AUTH
+  title: EKS standing admin
+  scope: regional
+  commands:
+  - aws eks describe-cluster --name $C --region $R --query cluster.accessConfig
+  - aws eks list-access-entries --cluster-name $C --region $R
+  - aws eks list-associated-access-policies --cluster-name $C --principal-arn $P --region $R
+  finding_if: creator-admin bootstrap / CONFIG_MAP auth; IAM user with AmazonEKSClusterAdminPolicy at cluster scope
+  severity: P1/P2
+- id: NEW-COGNITO-SIGNUP
+  title: Public self sign-up
+  scope: regional
+  commands:
+  - aws cognito-idp list-user-pools --max-results 60 --region $R
+  - aws cognito-idp describe-user-pool --user-pool-id $P --region $R --query UserPool.AdminCreateUserConfig
+  finding_if: AllowAdminCreateUserOnly=false
+  severity: P2
+- id: NEW-COGNITO-ATTR
+  title: Client may write email/custom attrs
+  scope: regional
+  commands:
+  - aws cognito-idp list-user-pool-clients --user-pool-id $P --region $R
+  - aws cognito-idp describe-user-pool-client --user-pool-id $P --client-id $C --region $R --query UserPoolClient.WriteAttributes
+  finding_if: email or custom:* writable
+  severity: P1
+  notes: always --query; full output contains ClientSecret
+- id: NEW-COGNITO-UNAUTH
+  title: Unauth identity pool with broad role
+  scope: regional
+  commands:
+  - aws cognito-identity list-identity-pools --max-results 60 --region $R
+  - aws cognito-identity describe-identity-pool --identity-pool-id $I --region $R
+  - aws cognito-identity get-identity-pool-roles --identity-pool-id $I --region $R
+  finding_if: AllowUnauthenticatedIdentities and unauth role grants service:* (P0)
+  severity: P0
+- id: NEW-TRAIL-VALIDATION
+  title: Trail log validation off
+  scope: regional
+  commands:
+  - (W6 output) LogFileValidationEnabled
+  finding_if: 'false'
+  severity: P2
+- id: NEW-ACCESS-ANALYZER
+  title: No IAM Access Analyzer
+  scope: regional
+  commands:
+  - aws accessanalyzer list-analyzers --region $R
+  finding_if: None in any region
+  severity: P3
+- id: NEW-SECURITY-CONTACT
+  title: No security contact
+  scope: global
+  commands:
+  - aws account get-alternate-contact --alternate-contact-type SECURITY
+  finding_if: ResourceNotFoundException
+  severity: P3
+- id: NEW-KMS-ROTATION
+  title: CMK rotation off
+  scope: regional
+  commands:
+  - aws kms list-aliases --region $R
+  - aws kms describe-key --key-id $K --region $R
+  - aws kms get-key-rotation-status --key-id $K --region $R
+  finding_if: Enabled symmetric customer key with rotation off
+  severity: P3
+- id: NEW-KMS-PENDING-DELETION
+  title: CMK pending deletion
+  scope: regional
+  commands:
+  - aws kms describe-key --key-id $K --region $R --query 'KeyMetadata.{s:KeyState,d:DeletionDate}'
+  finding_if: PendingDeletion
+  severity: P2
+- id: NEW-ECR-HYGIENE
+  title: ECR mutable + no scan
+  scope: regional
+  commands:
+  - aws ecr describe-repositories --region $R --query 'repositories[].{n:repositoryName,m:imageTagMutability,s:imageScanningConfiguration.scanOnPush}'
+  finding_if: MUTABLE and scanOnPush false
+  severity: P3
+- id: NEW-RDS-EXPOSURE
+  title: RDS exposure / durability
+  scope: regional
+  commands:
+  - aws rds describe-db-instances --region $R --query 'DBInstances[].{i:DBInstanceIdentifier,p:PubliclyAccessible,e:StorageEncrypted,b:BackupRetentionPeriod,d:DeletionProtection,v:EngineVersion}'
+  finding_if: PubliclyAccessible / unencrypted / BackupRetentionPeriod 0 / no deletion protection
+  severity: P1
+audit_role_extras_granted:
+  policy: RoqyReadOnlyExtras (vuln-lab/access/main.tf, applied 2026-11-04)
+  actions:
+  - budgets:ViewBudget
+  - ce:GetAnomalyMonitors
+  - ce:GetAnomalySubscriptions
+  - elasticbeanstalk:CheckDNSAvailability
+  - ssm:GetDocument
+  - savingsplans:DescribeSavingsPlans
+runtime_overlay: harness-loop/surface/checks-overlay.yaml is applied at runtime (severity overrides, knobs); see harness-loop/README.md

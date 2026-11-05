@@ -1,0 +1,44 @@
+# Read-only guardrails, enforced in code by guard.py on EVERY aws / kubectl / helm call of the audit.
+# The improvement loop may only TIGHTEN this file (remove allows, add denies). compose.py rejects loosening.
+aws:
+  allowed_profiles: [roqy-audit-ro, roqy-audit-clean]
+  forbid_env: [AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN]   # admin keys must never reach the audit
+  allowed_op_regex: '^(describe|get|list|head|check|lookup|search|batch-get)[a-z0-9-]*$'
+  allowed_ops_extra: [generate-credential-report]       # creates a report artifact, no config change
+  denied_services: [s3]                                  # high-level `aws s3 cp/sync` (object data); s3api metadata only
+  denied_ops:                                            # read verbs that return SECRET VALUES or data -> always blocked
+    - get-secret-value
+    - get-parameter
+    - get-parameters
+    - get-parameters-by-path
+    - get-parameter-history
+    - get-object
+    - get-object-version
+    - get-object-torrent
+    - get-password-data
+    - get-authorization-token
+    - get-login-password
+    - batch-get-image
+    - get-download-url-for-layer
+    - get-credentials-for-identity
+    - get-open-id-token
+    - get-session-token
+    - get-federation-token
+    - get-console-output
+    - get-console-screenshot
+    - get-log-events
+    - get-query-results
+    - get-records
+    - get-shard-iterator
+    - get-item
+    - batch-get-item
+    - get-data-key
+    - get-export
+  denied_args: ['--with-decryption', '--decrypt']
+kubectl:
+  allowed_verbs: [get, auth, version, api-resources]
+  denied_resources_regex: '(^|[,/ ])(secrets?|secret/\S+)($|[,/ ])'
+  require_context: true
+helm:
+  allowed_verbs: [list, status, version]
+  require_kube_context: true

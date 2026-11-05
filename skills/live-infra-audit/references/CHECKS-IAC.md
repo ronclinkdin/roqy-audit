@@ -1,9 +1,9 @@
-# Terraform / IaC checks (T1-T3, validated on a live canary)
+# Terraform / IaC checks (T1-T6, validated on a live canary)
 
 | # | Check | Command | Finding if |
 |---|---|---|---|
 | T1 | State exists and is real | `terraform state list` in the client's IaC root | Empty state with live resources = IaC is decoration, everything is console-managed |
-| T2 | Drift | `terraform plan -input=false` after `terraform import` of key resources | Plan shows changes nobody declared = manual console changes |
+| T2 | Drift | `terraform plan -lock=false -input=false -no-color -detailed-exitcode` against the client backend. NEVER run `terraform import` (it writes the client real state) and NEVER run `init` or `get`. For drift on an empty state: copy the code to a throwaway dir with a local backend, use `import {}` blocks there, plan there. Never paste full plan output into the report: it can contain secrets | Plan shows changes nobody declared = manual console changes. Exit code 2 = drift |
 | T3 | State security | Inspect backend config; local state file present? | State on disk unencrypted, no remote locking |
 | T4 | Provider / module staleness | `terraform providers` + read required_providers and module sources; check registry for latest | Provider or module pinned to a version with known CVEs, deprecated, or >2 majors behind. Also: unpinned providers (no version constraint) |
 | T5 | Plugin / toolchain EOL | `terraform version`; check tflint/checkov versions if installed | Terraform itself or audit tooling past EOL or with known CVEs |

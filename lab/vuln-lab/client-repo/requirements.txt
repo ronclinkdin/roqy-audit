@@ -1,0 +1,4 @@
+# unpinned on purpose (roqy-lab plant)
+requests
+flask
+boto3

@@ -18,8 +18,8 @@ jobs:
         run: |
           ! grep -rInE \
             '(ignore (all )?(previous|prior) instructions|disregard (all|your) instructions|you are now|act as (if|an)|system prompt|exfiltrate|curl[^|]*\|[[:space:]]*(ba)?sh|wget[^|]*\|[[:space:]]*(ba)?sh|base64[[:space:]]+-d[[:space:]].*\|[[:space:]]*(ba)?sh|rm[[:space:]]+-rf[[:space:]]+/|chmod[[:space:]]+777[[:space:]]+/)' \
-            --include='*.md' .
+            --include='*.md' --exclude-dir=lab --exclude-dir=skill-demo .
       - name: Scan markdown for unexpected external URLs
         run: |
-          ! grep -rIhoE 'https?://[a-zA-Z0-9./_-]+' --include='*.md' . \
+          ! grep -rIhoE 'https?://[a-zA-Z0-9./_-]+' --include='*.md' --exclude-dir=lab --exclude-dir=skill-demo . \
             | grep -vE 'github.com|roqy.io|agentskills.io|cloudflare|floci-io|storage.googleapis.com|monitoring.googleapis.com|amazonaws.com|<'

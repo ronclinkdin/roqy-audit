@@ -9,6 +9,80 @@ engineer plus a platform, for 1-100 person startups. If you want this audit
 run against your infrastructure by the people who built it:
 [roqy.io](https://roqy.io).
 
+## Open-source repo scan
+
+`roqy-audit scan` is a local, offline pass over a git repo. It does not log into a cloud account. Core checks do not use the network.
+
+```bash
+pip install -e .
+roqy-audit scan .
+roqy-audit scan path/to/repo --md report.md --json report.json --sarif report.sarif
+roqy-audit check-skill path/to/skill-or-mcp
+```
+
+Exit code 1 when a finding or attack chain is at least `--fail-on` (default `P1`). `--fail-on none` always exits 0. If `trivy`, `gitleaks`, `zizmor`, `checkov`, or `osv-scanner` are on `PATH`, their output is normalized into the same findings and deduped. A missing tool is listed as `not run` and does not fail the scan.
+
+GitHub Actions (composite action in `action.yml`, no `npx`):
+
+```yaml
+- uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+- uses: ronclinkdin/roqy-audit@mvp-scan
+  with:
+    path: .
+    fail-on: P1
+```
+
+### What it checks
+
+Static checks shared with the lab scorer: Terraform backend and provider pins, secrets that will land in state, GitHub Actions permissions, pull-request apply, unpinned actions, `pull_request_target`, Docker base images and pipe-to-shell, dependency lockfiles, and agent skills / MCP configs (prompt-injection markers, unpinned `npx`/`uvx`, secret-like env, broad filesystem roots).
+
+### How this is different
+
+1. Findings are grouped into attack chains (CI to cloud takeover, build-time code injection, agent tool compromise, leaked secret to direct access), each with the steps, the impact, and a fix order.
+2. One pass correlates repo, CI, IaC, Helm, and agent config instead of a flat list from a single layer.
+3. Agent supply chain is a first-class check: `roqy-audit check-skill` reads a skill or MCP tree before install. It never executes the target. A security-topic skill (pentest notes, detection examples) is flagged `security_topic` and content-only markers are down-weighted; code-execution patterns are not.
+4. The same static module is what the lab scorer runs. On this repo's lab, default-on plants score 108/108 and the clean-repo variant scores 0 findings.
+5. Each check id carries an indicative SOC 2 Common Criteria label (CC6.1, CC6.6, CC6.7, CC7.1, CC8.1, and others). That label is a questionnaire aid, not an auditor opinion.
+
+### Sample
+
+`roqy-audit scan lab/vuln-lab/client-repo --no-adapters` (35 findings, 4 chains). The head of the report:
+
+```
+# Attack chains
+
+### 1. CI to cloud takeover (P0)
+Unpinned actions, a write-all token, pull_request_target, and long-lived AWS keys in the same workflows.
+
+### 2. Agent tool compromise (P0)
+Unpinned MCP (npx -y / @latest), literal API_TOKEN in mcp.json, filesystem root `/`, and a skill whose text overrides the operator's instructions.
+
+### 3. Build-time code injection (P1)
+Dockerfile pipe-to-shell, `node:latest`, EOL `python:2.7`, unpinned pip, and a remote ADD without a checksum.
+
+### 4. Leaked secret gives direct access (P1)
+Hardcoded database password default, plus that value stored in Terraform state.
+```
+
+`check-skill` on the same tree:
+
+```
+[HIGH] lab/client-repo (skill, security_topic=False)
+  high   SR-INJ-OVERRIDE   .claude/skills/roqy-lab-helper/SKILL.md:4
+  medium SR-MCP-SECRET-LITERAL  .cursor/mcp.json:1
+  medium SR-PIPE-SHELL   Dockerfile:4
+WARNING: Review before installing. Patterns are observations, not proof of intent.
+```
+
+`check-skill` on `lab/harness-loop/variants/clean-repo`:
+
+```
+[LOW] lab/clean-repo (skill, security_topic=False)
+No high or medium patterns.
+```
+
+Want the live cloud audit (read-only, 48h)? [roqy.io](https://roqy.io).
+
 Three layers, one report:
 
 | Layer | Tool | What it checks |
@@ -146,6 +220,24 @@ Works on any [Agent Skills](https://agentskills.io) host. See
 run an infra readiness audit on this repo          # repo layer
 audit the live server, read-only                   # live layer (confirms target first)
 ```
+
+## Vulnerable lab and improvement loop
+
+`lab/` holds a sandbox AWS lab and the loop that scores the audit against it.
+The pytest suite does not call AWS.
+
+| Path | What |
+|---|---|
+| `lab/vuln-lab/` | Terraform lab, read-only audit role, envelope and supply-chain plants, sample client repo, `EXPECTED-FINDINGS.yaml` (123 plants, 108 on by default) |
+| `lab/lab-run/` | v3 executors (`audit_v3.py`, `audit_envelope.py`) and `checks-v3.yaml` |
+| `lab/harness-loop/` | Propose, probe, compose loop: hidden grader, read-only command guard, editable overlay |
+
+```bash
+python3 -m pip install pytest pyyaml
+python3 -m pytest -q lab/harness-loop/tests
+```
+
+Live probes need the read-only role from `lab/vuln-lab/access/`. Notes in the lab READMEs are in Hebrew. Coverage gaps versus the skill: `docs/aws-coverage-gaps.md`.
 
 ## Docs
 

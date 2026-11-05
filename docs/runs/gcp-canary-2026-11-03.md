@@ -1,6 +1,6 @@
 # GCP canary audit — live-infra-audit skill validation run
 
-Date: 2026-11-03. Project: roqy-512012 (deliberately dirty canary environment built to test the skill). Account: ronco@roqy.io. All checks read-only.
+Date: 2026-11-03. Project: <canary-project> (deliberately dirty canary environment built to test the skill). Account: <audit-identity>. All checks read-only.
 
 ## Canary setup (what we planted)
 

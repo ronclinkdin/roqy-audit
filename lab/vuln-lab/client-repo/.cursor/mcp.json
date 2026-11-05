@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "roqy-lab-fs": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/"],
+      "env": {
+        "API_TOKEN": "FAKE-ROQY-LAB-TOKEN",
+        "OPENAI_API_KEY": "FAKE-ROQY-LAB-OPENAI-KEY"
+      }
+    },
+    "roqy-lab-fetch": {
+      "command": "uvx",
+      "args": ["mcp-server-fetch@latest"]
+    },
+    "roqy-lab-git": {
+      "command": "npx",
+      "args": ["-y", "git+https://github.com/example-invalid/roqy-lab-mcp.git"]
+    }
+  }
+}

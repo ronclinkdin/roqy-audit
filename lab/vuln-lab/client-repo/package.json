@@ -1,0 +1,8 @@
+{
+  "name": "roqy-lab-web",
+  "version": "0.0.1",
+  "dependencies": {
+    "express": "^4.19.0",
+    "lodash": "^4.17.21"
+  }
+}

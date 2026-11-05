@@ -11,9 +11,10 @@ Checks (validate):
   3. status values in {confirmed, needs_validation, rejected}
   4. priority only on confirmed items
   5. no secret values leaked: scans for known canary secret strings and long token-like runs
-  6. report length cap (<= 120 lines)
+  6. report length cap (<= 160 lines)
   7. canary coverage: expected planted findings detected (G1 firewall, G2 SA key, G4 budget)
 """
+import datetime
 import json
 import re
 import subprocess
@@ -45,7 +46,7 @@ def validate(run_dir: Path) -> bool:
         return False
 
     text = report.read_text()
-    ok &= check("report under 120 lines", len(text.splitlines()) <= 120, f"{len(text.splitlines())} lines")
+    ok &= check("report under 160 lines", len(text.splitlines()) <= 160, f"{len(text.splitlines())} lines")
 
     # verdict hygiene: every finding heading must contain a valid verdict anywhere
     bad = []
@@ -60,6 +61,16 @@ def validate(run_dir: Path) -> bool:
     ok &= check("no canary secret values in report", not leaked, str(leaked))
     tokens = re.findall(r"[A-Za-z0-9_\-]{40,}", text)
     ok &= check("no token-like strings in report", not tokens, str(tokens[:2]))
+    ids = re.findall(r"\b\d{12}\b", text)
+    ok &= check("no 12-digit account IDs in report", not ids, str(ids[:2]))
+    ok &= check("report carries today's date", datetime.date.today().isoformat() in text, "date line")
+    p0p1 = re.findall(r"### F\d+.*?(?=### F\d+|\Z)", text, re.S)
+    shallow = [f[:60] for f in p0p1 if ("P0" in f.split("\n")[0] or "P1" in f.split("\n")[0]) and "If it stays" not in f and "If left" not in f]
+    is_fresh = datetime.date.today().isoformat() in text
+    if shallow and is_fresh:
+        ok &= check("P0/P1 findings carry residual-risk section", False, str(len(shallow)))
+    elif shallow:
+        check("P0/P1 findings carry residual-risk section", True, f"WARN {len(shallow)} (report predates rule)")
 
     fj = run_dir / "findings.json"
     if fj.exists():
@@ -112,9 +123,9 @@ def validate(run_dir: Path) -> bool:
 def live() -> bool:
     out_root = Path.home() / "infra-readiness-audit" / "gcp-canary-harness"
     prompt = (
-        "Run the live-infra-audit skill in full audit mode against GCP project roqy-512012 "
+        "Run the live-infra-audit skill in full audit mode against GCP project $GCP_CANARY_PROJECT "
         "(read-only, gcloud is at /tmp/google-cloud-sdk/bin/gcloud, terraform at /tmp/terraform, "
-        "billing account 013EAB-A843BD-B58B60). "
+        "billing account from env GCP_BILLING_ACCOUNT). "
         f"Write the report to {out_root}/<today>/live.md. Do not change any resource. "
         "This is a canary project with planted findings; detect them. "
         "Every finding heading must carry exactly one verdict: CONFIRMED, NEEDS_VALIDATION, or REJECTED. "

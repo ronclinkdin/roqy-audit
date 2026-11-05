@@ -1,0 +1,9 @@
+image:
+  repository: docker.io/library/busybox
+  tag: latest
+db:
+  host: roqy-lab-legacy-db
+  user: app
+  password: FAKE-Helm-Pa55w0rd-roqy-lab
+stripe:
+  apiKey: sk_live_FAKE_roqy_lab_helm_not_real_0000

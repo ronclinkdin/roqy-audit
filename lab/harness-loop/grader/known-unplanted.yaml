@@ -1,0 +1,18 @@
+# Grader-side triage of findings that hit lab resources but match no plant.
+# These are REAL issues on lab resources (secondary effects of a plant, or manual drift), labelled
+# true-positive-unplanted. They do not count as false positives. Anything unmatched and NOT listed here
+# counts as "untriaged" and blocks a candidate edit that increases it.
+- {check_id: W2, resource: roqy-lab-client-web, why: "port 22 opened manually in the console = the c20 drift plant seen from the cloud side (needs_validation: not on a public ENI)"}
+- {check_id: NEW-S3-RANSOMWARE, resource: roqy-lab-client-tfstate, why: "state bucket has no versioning (same root cause as tf-state-no-versioning)"}
+- {check_id: NEW-S3-RANSOMWARE, resource: roqy-lab-llm-rag-data, why: "lab bucket really has no versioning/Object Lock"}
+- {check_id: W24, resource: roqy-lab-intern, why: "intern policy really grants iam:PassRole on *"}
+- {check_id: NEW-IAM-PRIVESC, resource: roqy-lab-intern, why: "same intern policy, privesc primitives"}
+- {check_id: W24, resource: roqy-lab-codebuild, why: "codebuild role deploy-everything PassRole *"}
+- {check_id: NEW-IAM-PRIVESC, resource: roqy-lab-codebuild, why: "codebuild role attachrolepolicy on *"}
+- {check_id: W25, resource: roqy-lab-github-deploy, why: "PowerUserAccess = Allow NotAction"}
+- {check_id: W31, resource: roqy-lab-data-team, why: "trusts own account root without condition"}
+- {check_id: W35, resource: roqy-lab-billing-worker, why: "task exposes host ports (needs_validation)"}
+- {check_id: W20, resource: roqy-lab-legacy-db, why: "postgres 14 community EOL 2026-11"}
+- {check_id: NEW-EKS-AUTH, resource: roqy-lab-eks, title_re: "IAM user", why: "intern IAM user has ClusterAdmin"}
+- {check_id: NEW-K8S-NO-LIMITS, resource: roqy-lab-payments, why: "found during envelope run, not planted"}
+- {check_id: NEW-HELM-PLAINTEXT-RENDERED, resource: roqy-lab-payments, why: "DB_PASSWORD literal in rendered Deployment env"}

