@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "roqy-audit"
+version = "0.1.0"
+description = "Static repo scan: attack chains across IaC, CI, containers, and agent skills. No cloud credentials."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = ["pyyaml"]
+
+[project.scripts]
+roqy-audit = "roqy_audit.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+roqy_audit = ["soc2.yaml"]

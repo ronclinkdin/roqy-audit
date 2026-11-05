@@ -1,5 +1,6 @@
 __pycache__/
 .pytest_cache/
+*.egg-info/
 
 # Lab artifacts. Terraform state, provider cache, kubeconfigs, raw audit dumps,
 # and the harness replay cache stay out of git. runs/ledger.jsonl is kept.

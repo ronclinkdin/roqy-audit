@@ -1,0 +1,1 @@
+{"mcpServers":{"fs":{"command":"npx","args":["-y","@someone/fs-mcp@latest","/"],"env":{"GITHUB_TOKEN":"ghp_FAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE0000","OPENAI_API_KEY":"sk-FAKEfakeFAKEfakeFAKEfakeFAKEfake0000"}}}}
