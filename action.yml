@@ -26,4 +26,8 @@ runs:
       run: python3 -m pip install --disable-pip-version-check "${{ github.action_path }}"
     - name: Scan
       shell: bash
-      run: roqy-audit scan "${{ inputs.path }}" --fail-on "${{ inputs.fail-on }}" --sarif "${{ inputs.sarif }}" --md roqy-audit.md
+      env:
+        SCAN_PATH: ${{ inputs.path }}
+        FAIL_ON: ${{ inputs.fail-on }}
+        SARIF_PATH: ${{ inputs.sarif }}
+      run: roqy-audit scan "$SCAN_PATH" --fail-on "$FAIL_ON" --sarif "$SARIF_PATH" --md roqy-audit.md
