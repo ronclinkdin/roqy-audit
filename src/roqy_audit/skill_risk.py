@@ -56,8 +56,31 @@ NEGATED = re.compile(r"\b(do\s+not|don'?t|never|avoid|no|not|without|instead\s+o
 QUOTE_BEFORE = re.compile(r"[\"'`“‘«]\s*$")
 
 def is_security_topic(text_head):
-    return bool(re.search(r"\b(red[- ]team|pentest|penetration test|offensive security|bug ?bount|ctf|malware analysis|reverse engineering|"
-                          r"exploit|vulnerability (scanner|research)|prompt injection (detection|scanner|defen)|security (scanner|audit))", text_head, re.I))
+    """True when the skill's name or stated purpose is a security review, not merely when the body mentions attacks."""
+    return bool(re.search(
+        r"\b(red[- ]team|pentest|penetration test|offensive security|bug ?bount|ctf|malware analysis|reverse engineering|"
+        r"exploit|vulnerability (scanner|research)|prompt injection|security (scanner|audit|review)|"
+        r"secrets?[- ]hygiene|leaked credentials|exfiltration risks?|credential (scan|review|hygiene)|secret scanning)\b",
+        text_head or "", re.I))
+
+
+def stated_purpose(files, name=""):
+    """Frontmatter name/description (and a root README), not the rest of the body.
+
+    A hidden instruction must not reclassify the skill as a security topic.
+    """
+    bits = [name or ""]
+    for rel, txt in files:
+        base = os.path.basename(rel).lower()
+        if base.startswith("readme") and rel.count(os.sep) == 0:
+            bits.append(txt[:3000])
+            continue
+        if base not in ("skill.md", "agents.md", "claude.md") and not base.endswith(".mdc"):
+            continue
+        fm = re.match(r"^---\n(.*?)\n---", txt, re.S)
+        if fm:
+            bits.append(fm.group(1))
+    return "\n".join(bits)
 
 # ---------- patterns ----------
 INJ_OVERRIDE = re.compile(r"\b(ignore|disregard|forget|override)\s+(all\s+|any\s+|the\s+)?(previous|prior|above|earlier|preceding|system|developer)\s+"
@@ -319,6 +342,40 @@ def scan_code(R, rel, txt, security_repo):
             R.add("SR-CODE-SECRET-PATHS", "medium" if reads and not (security_repo or is_security_path(rel)) else "low", "code touches credential/secret paths", rel, line_no(txt, m.start()),
                   txt[max(0, m.start() - 40):m.end() + 40], "code")
 
+def _is_mcp_config(rel):
+    b = os.path.basename(rel).lower()
+    if b in (".mcp.json", "mcp.json", "claude_desktop_config.json", "plugin.json", "marketplace.json"):
+        return True
+    return b.startswith("mcp") and b.endswith(".json")
+
+
+def _mcp_launch(R, rel, sname, cfg):
+    """@latest / npx / uvx and a filesystem root of / or $HOME, in any mcp*.json."""
+    cmd = str(cfg.get("command") or "")
+    args = [str(a) for a in (cfg.get("args") or [])]
+    joined = (cmd + " " + " ".join(args)).strip()
+    if re.search(r"\b(npx|uvx|bunx)\b", joined):
+        if cmd in ("npx", "uvx", "bunx"):
+            pkgs = [a for a in args if a and not a.startswith("-") and not a.startswith(("/", ".", "~", "$"))]
+        else:
+            pkgs = re.findall(r"\b(?:npx|uvx|bunx)\s+(?:-[^\s]+\s+)*(\S+)", joined)
+        loose = []
+        for pkg in pkgs:
+            if pkg.endswith("@latest") or pkg == "latest":
+                loose.append(pkg)
+            elif not re.search(r"@\d+\.\d+|==\d+\.\d+|@sha256:", pkg) and ("-y" in args or "--yes" in args or cmd in ("uvx", "bunx")):
+                loose.append(pkg)
+        if loose:
+            R.add("SR-UNPINNED-INSTALL", "medium",
+                  "MCP server is launched with npx/uvx and no pinned version (" + ", ".join(loose[:4]) + ")",
+                  rel, 1, f"{sname}: {' '.join(loose[:4])}", "pinning")
+    broad = [a for a in args if a in ("/", "~", "${HOME}", "$HOME", "/home", "/Users", "C:\\", "C:/")
+             or re.fullmatch(r"/home/[^/]+/?", a) or re.fullmatch(r"/Users/[^/]+/?", a)]
+    if broad:
+        R.add("SR-MCP-BROAD-FS", "high", "MCP server is granted a broad filesystem root",
+              rel, 1, f"{sname}: {', '.join(broad[:4])}", "permissions")
+
+
 def scan_manifests(R, rel, txt):
     b = os.path.basename(rel).lower()
     if is_test_or_example(rel): return
@@ -364,13 +421,14 @@ def scan_manifests(R, rel, txt):
                 R.perm["allowed_tools"].update(tools)
                 if any(t in ("Bash", "Bash(*)", "*") for t in tools):
                     R.add("SR-SKILL-BASH", "low", "skill frontmatter pre-allows unrestricted Bash", rel, 2, at.group(0)[:100], "permissions")
-    if b in (".mcp.json", "mcp.json", "claude_desktop_config.json", "plugin.json", "marketplace.json"):
+    if _is_mcp_config(rel):
         try: d = json.loads(txt)
         except Exception: return
         servers = d.get("mcpServers") or d.get("servers") or {}
         if isinstance(servers, dict):
             for sname, cfg in servers.items():
                 if not isinstance(cfg, dict): continue
+                _mcp_launch(R, rel, sname, cfg)
                 for ek, ev in (cfg.get("env") or {}).items():
                     if SECRET_NAME.search(ek) and ev and not re.match(r"^\$\{?|^<|^your|^YOUR|^xxx|^\.\.\.|^sk-\.\.\.", str(ev)):
                         R.add("SR-MCP-SECRET-LITERAL", "medium", "MCP config ships a literal value for a secret-like env var (value not shown)", rel, 1, f"{sname}.env.{ek}", "permissions")
@@ -526,13 +584,21 @@ def assess_provenance(R, name):
             R.add("SR-PROV-REGISTRY-INSTALL-SCRIPT", "medium", f"published npm {reg['name']}@{reg.get('latest')} declares an install script", "", 0, reg["name"], "provenance")
 
 # ------------------------------------------------------------------ scoring
+def _combo_exfil(findings):
+    """Secret-path plus an exfil instruction in the same skill is high, even without an install hook."""
+    live = {f["id"] for f in findings if f["severity"] in ("high", "medium")}
+    secret = bool(live & {"SR-SECRET-PATHS", "SR-CODE-SECRET-PATHS"})
+    exfil = bool(live & {"SR-EXFIL-INSTR", "SR-EXFIL-HOST"})
+    return secret and exfil
+
+
 def summarize(R):
     sev = [f["severity"] for f in R.findings]
     hi = sev.count("high"); med = sev.count("medium")
     score = sum(WEIGHT[s] for s in sev)
     perm = R.perm
     broad = bool(perm["shell_exec_files"]) and R.kind == "mcp"
-    risk = "high" if hi else "medium" if (med >= 2 or (med and broad)) else "medium" if med else "low"
+    risk = "high" if hi or _combo_exfil(R.findings) else "medium" if (med >= 2 or (med and broad)) else "medium" if med else "low"
     reasons = sorted(R.findings, key=lambda f: -WEIGHT[f["severity"]])
     top = []
     for f in reasons:
@@ -562,8 +628,7 @@ def assess(root, name=None, kind="auto", meta=None, online=False):
     if kind == "auto":
         mcpish = sum(1 for rel, t in files if rel.lower().endswith(CODE_EXT) and re.search(r"modelcontextprotocol|FastMCP|mcp\.server|mcp-go|rmcp", t))
         R.kind = "mcp" if mcpish else "skill"
-    head = " ".join(t[:3000] for rel, t in files if os.path.basename(rel).lower().startswith("readme") and rel.count(os.sep) == 0)
-    security_repo = is_security_topic(head + " " + (name or ""))
+    security_repo = is_security_topic(stated_purpose(files, name))
     for rel, txt in files:
         R.files_scanned += 1
         scan_content(R, rel, txt, security_repo)
@@ -579,7 +644,8 @@ def assess(root, name=None, kind="auto", meta=None, online=False):
     # Content-only markers are down-weighted. Code-execution patterns (category "code") stay weighted.
     if security_repo:
         for f in R.findings:
-            if f["category"] == "content" and f["severity"] == "high":
+            # Prose in a security skill (credentials, exfil, ignore-previous) is the subject, not an instruction to the agent.
+            if f["category"] == "content" and f["severity"] in ("high", "medium"):
                 f["severity"] = "low"
                 f["reason"] += " (down-weighted: security-topic content)"
     risk, score, warn = summarize(R)
