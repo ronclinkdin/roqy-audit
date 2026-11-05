@@ -1,5 +1,7 @@
 """Optional third-party scanners. Missing tools are 'not run'. A tool error never fails the scan."""
-import json, os, shutil, subprocess, tempfile
+import json, os, re, shutil, subprocess, tempfile
+
+from roqy_audit.paths import noise_path
 
 TOOLS = ("trivy", "gitleaks", "zizmor", "checkov", "osv-scanner")
 
@@ -50,26 +52,41 @@ def run_adapters(path, enabled=True):
 
 
 def dedupe(ours, extras):
-    """Drop an adapter finding when we already reported the same file for a related check."""
+    """Drop an adapter finding when we already reported the same file for a related check.
+
+    zizmor `unpinned-uses` overlaps NEW-CICD-ACTION-PIN. Same for other pin/secret pairs
+    that name the same workflow or Dockerfile.
+    """
     owned_files = []
     for f in ours:
         ev = (f.get("evidence") or "") + " " + (f.get("resource") or "")
         owned_files.append((f, ev))
     kept = []
     for e in extras:
-        blob = (e.get("evidence") or "") + " " + (e.get("resource") or "") + " " + (e.get("title") or "")
+        blob = " ".join(str(e.get(k) or "") for k in ("evidence", "resource", "title", "check_id"))
         drop = False
         for o, ev in owned_files:
             if not ev.strip():
                 continue
-            # same path fragment and both are about secrets or unpinned supply
-            path_hit = any(part and part in blob for part in ev.split() if "/" in part or part.endswith((".tf", ".yml", ".yaml", ".json", "Dockerfile")))
+            names = _names(ev) | _names(o.get("resource") or "")
+            path_hit = bool(names & _names(blob)) or any(
+                part and part in blob for part in ev.split() if "/" in part or part.endswith((".tf", ".yml", ".yaml", ".json"))
+            )
             if path_hit and _theme(o) and _theme(o) == _theme(e):
+                drop = True
+                break
+            if path_hit and o.get("check_id") == "NEW-CICD-ACTION-PIN" and "unpinned" in (e.get("check_id") or "").lower():
                 drop = True
                 break
         if not drop:
             kept.append(e)
     return kept
+
+
+def _names(text):
+    return set(re.findall(r"[\w.@-]+\.(?:yml|yaml|tf|json|Dockerfile)", str(text))) | (
+        {"Dockerfile"} if "Dockerfile" in str(text) else set()
+    )
 
 
 def _theme(f):
@@ -90,14 +107,17 @@ def _trivy(path):
     for res in (data or {}).get("Results") or []:
         target = res.get("Target") or path
         for v in res.get("Vulnerabilities") or []:
-            out.append(_f("trivy", f"trivy:{v.get('VulnerabilityID', 'vuln')}", target,
+            out.append(_f("trivy", f"trivy:{v.get('VulnerabilityID', 'vuln')}", os.path.basename(str(target)),
                           f"{v.get('VulnerabilityID')} {v.get('PkgName', '')} {v.get('Title', '')}".strip(),
-                          _sev(v.get("Severity")), target))
+                          _sev(v.get("Severity")), target, (v.get("CauseMetadata") or {}).get("StartLine")))
         for m in res.get("Misconfigurations") or []:
-            out.append(_f("trivy", f"trivy:{m.get('ID', 'misconfig')}", target, m.get("Title") or m.get("Message") or "misconfig",
-                          _sev(m.get("Severity")), target))
+            line = ((m.get("CauseMetadata") or {}).get("StartLine"))
+            out.append(_f("trivy", f"trivy:{m.get('ID', 'misconfig')}", os.path.basename(str(target)), m.get("Title") or m.get("Message") or "misconfig",
+                          _sev(m.get("Severity")), target, line))
         for s in res.get("Secrets") or []:
-            out.append(_f("trivy", f"trivy:{s.get('RuleID', 'secret')}", target, s.get("Title") or "secret", _sev(s.get("Severity"), "P1"), target))
+            line = s.get("StartLine")
+            sev = "P3" if noise_path(target) else _sev(s.get("Severity"), "P1")
+            out.append(_f("trivy", f"trivy:{s.get('RuleID', 'secret')}", os.path.basename(str(target)), s.get("Title") or "secret", sev, target, line))
     return out, f"{len(out)} normalized"
 
 
@@ -119,7 +139,9 @@ def _gitleaks(path):
     for item in data:
         rule = item.get("RuleID") or item.get("rule") or "secret"
         file = item.get("File") or item.get("file") or path
-        out.append(_f("gitleaks", f"gitleaks:{rule}", os.path.basename(file), f"gitleaks {rule}", "P1", file))
+        line = item.get("StartLine") or item.get("startLine") or item.get("line")
+        sev = "P3" if noise_path(file) else "P1"
+        out.append(_f("gitleaks", f"gitleaks:{rule}", os.path.basename(str(file)), f"gitleaks {rule}", sev, file, line))
     return out, f"{len(out)} normalized"
 
 
@@ -139,8 +161,10 @@ def _zizmor(path):
         msg = item.get("message") or item.get("desc") or rule
         if isinstance(msg, dict):
             msg = msg.get("text") or rule
-        loc = item.get("path") or item.get("file") or path
-        out.append(_f("zizmor", f"zizmor:{rule}", os.path.basename(str(loc)), str(msg)[:180], _sev(item.get("severity") or item.get("level"), "P2"), str(loc)))
+        loc, line = _sarif_loc(item)
+        if not loc:
+            loc = item.get("path") or item.get("file") or path
+        out.append(_f("zizmor", f"zizmor:{rule}", os.path.basename(str(loc)), str(msg)[:180], _sev(item.get("severity") or item.get("level"), "P2"), str(loc), line))
     return out, f"{len(out)} normalized"
 
 
@@ -157,7 +181,9 @@ def _checkov(path):
     for c in checks:
         cid = c.get("check_id") or "CKV"
         where = c.get("file_path") or c.get("repo_file_path") or path
-        out.append(_f("checkov", f"checkov:{cid}", os.path.basename(str(where)), c.get("check_name") or cid, _sev(c.get("severity"), "P2"), str(where)))
+        span = c.get("file_line_range") or []
+        line = span[0] if isinstance(span, list) and span else None
+        out.append(_f("checkov", f"checkov:{cid}", os.path.basename(str(where)), c.get("check_name") or cid, _sev(c.get("severity"), "P2"), str(where), line))
     return out, f"{len(out)} normalized"
 
 
@@ -194,14 +220,28 @@ def _json(text):
             return None
 
 
-def _f(tool, check_id, resource, title, severity, evidence):
+def _sarif_loc(item):
+    locs = item.get("locations") or []
+    if not locs or not isinstance(locs[0], dict):
+        return None, None
+    phys = (locs[0].get("physicalLocation") or {})
+    art = (phys.get("artifactLocation") or {}).get("uri")
+    region = phys.get("region") or {}
+    return art, region.get("startLine")
+
+
+def _f(tool, check_id, resource, title, severity, evidence, line=None):
+    ev = str(evidence or "")
+    if line and not ev.endswith(f":{line}"):
+        ev = f"{ev}:{line}"
     return {
         "check_id": check_id,
         "resource": resource,
         "title": title[:240],
         "severity": severity,
         "status": "needs_validation",
-        "evidence": evidence,
+        "evidence": ev,
+        "line": line,
         "layer": "adapter",
         "tool": tool,
     }

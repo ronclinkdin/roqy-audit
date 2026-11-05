@@ -60,6 +60,13 @@ def to_markdown(payload):
     if len(ranked) > 12:
         lines.append(f"- … {len(ranked) - 12} more in the JSON report.")
     lines.append("")
+    skipped = payload.get("skipped") or []
+    if skipped:
+        lines.append("## Skipped files")
+        lines.append("")
+        for s in skipped[:20]:
+            lines.append(f"- `{s.get('path')}` {s.get('reason')}")
+        lines.append("")
     lines.append("## Tools run / not run")
     lines.append("")
     for t in tools:

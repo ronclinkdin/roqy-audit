@@ -25,7 +25,8 @@ def scan_path(path, use_adapters=True):
             "status": status, "evidence": evidence, "layer": layer, "tool": "roqy",
         })
 
-    scan_static(path, find, _SECRET_RE)
+    skipped = []
+    scan_static(path, find, _SECRET_RE, skipped=skipped)
     extras, tools = run_adapters(path, enabled=use_adapters)
     ours_tools = [{"name": "roqy-audit", "status": "ran", "detail": f"{len(raw)} static findings"}]
     findings = annotate(raw + dedupe(raw, extras))
@@ -37,6 +38,7 @@ def scan_path(path, use_adapters=True):
         "findings": findings,
         "chains": chains,
         "tools": ours_tools + tools,
+        "skipped": skipped,
         "disclaimer": "Indicative SOC 2 labels, not an auditor opinion. Static checks did not call the network.",
     }
 

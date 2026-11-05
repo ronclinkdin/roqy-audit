@@ -282,6 +282,18 @@ def scan_code(R, rel, txt, security_repo):
         R.add("SR-MINIFIED", "low", "very long single-line code in a non-vendored source file (hard to review)", rel, long_lines[0], "", "code")
     for m in EXFIL_HOSTS.finditer(txt):
         integration = integration_host(R, rel, m.group(0).split("/")[0])
+        line_start = txt.rfind("\n", 0, m.start()) + 1
+        line_end = txt.find("\n", m.end())
+        line = txt[line_start: line_end if line_end >= 0 else len(txt)]
+        window = txt[max(0, m.start() - 160):m.end() + 80]
+        # A URL inside CLI help, a docstring, or a comment is not a network call.
+        if re.search(r"\bhelp\s*=|description\s*=|\busage:|--help\b|argparse", window, re.I):
+            continue
+        if re.match(r"\s*(#|//|\*|\"\"\"|''')", line):
+            continue
+        ctx = "\n".join(txt[:m.end()].splitlines()[-4:])
+        if not re.search(r"\b(fetch|axios|requests\.|urllib|urlopen|http\.(?:get|post|request)|got\(|curl|wget|net\.Dial|http\.Client|XMLHttpRequest)\b", ctx, re.I):
+            continue
         R.add("SR-EXFIL-HOST", "low" if test or security_repo or is_security_path(rel) or integration else "high", "code references a request-capture / paste / webhook endpoint often used for data egress",
               rel, line_no(txt, m.start()), txt[max(0, m.start() - 40):m.end() + 40], "code")
     for m in ENV_DUMP.finditer(txt):

@@ -6,18 +6,45 @@ optional knobs; the CLI uses the defaults.
 """
 import glob, json, os, re, shutil, subprocess, sys
 
+from roqy_audit.paths import has_lockfile, noise_path, soften
+
 def _default_param(name, default):
     return default
 
-def scan_static(repo, find, sec_key, param=None):
-    """Run the static checks against `repo`. Returns the parsed Terraform backend dict or None."""
+def scan_static(repo, find, sec_key, param=None, skipped=None):
+    """Run the static checks against `repo`. Returns the parsed Terraform backend dict or None.
+
+    One unreadable or unparseable file is recorded in `skipped` as 'skipped: parse error'
+    and does not abort the scan.
+    """
     if param is None:
         param = _default_param
+    if skipped is None:
+        skipped = []
     repo = os.path.abspath(repo)
     rel = lambda p: os.path.relpath(p, repo)
 
-    tf_files = sorted(glob.glob(f"{repo}/**/*.tf", recursive=True))
-    tf = {f: open(f).read() for f in tf_files}
+    def emit(cid, res, title, sev, status="confirmed", evidence="", layer=""):
+        find(cid, res, title, soften(sev, evidence, res), status=status, evidence=evidence, layer=layer)
+
+    def skip(path, detail):
+        skipped.append({"path": rel(path) if path else "", "reason": "skipped: parse error", "detail": str(detail)[:180]})
+
+    def read_text(path):
+        if not os.path.isfile(path):
+            return None
+        try:
+            return open(path, encoding="utf-8", errors="replace").read()
+        except OSError as exc:
+            skip(path, exc)
+            return None
+
+    tf_files = [f for f in sorted(glob.glob(f"{repo}/**/*.tf", recursive=True)) if os.path.isfile(f)]
+    tf = {}
+    for f in tf_files:
+        text = read_text(f)
+        if text is not None:
+            tf[f] = text
     def blocks(src, head_re):
         """yield (header_match, body) for top-level HCL blocks matching head_re (brace counting)."""
         for m in re.finditer(head_re, src, re.M):
@@ -33,14 +60,14 @@ def scan_static(repo, find, sec_key, param=None):
     if backend and backend["type"] == "s3":
         bf = rel(backend["file"])
         if "dynamodb_table" not in backend and backend.get("use_lockfile") != "true":
-            find("NEW-TF-STATE-LOCK", bf, f"{bf}: S3 backend has no state locking (no use_lockfile, no dynamodb_table)", "P2", evidence=bf, layer="iac")
+            emit("NEW-TF-STATE-LOCK", bf, f"{bf}: S3 backend has no state locking (no use_lockfile, no dynamodb_table)", "P2", evidence=bf, layer="iac")
         if backend.get("encrypt") in (None, "false"):
             pass  # reported together with bucket encryption below
     for f, s in tf.items():
         for m, body in blocks(s, r'^variable\s+"([^"]+)"\s*\{'):
             dm = re.search(r'^\s*default\s*=\s*"([^"]+)"', body, re.M)
             if dm and sec_key.search(m.group(1)):
-                find("NEW-TF-HARDCODED-SECRET", f"var.{m.group(1)}", f"{rel(f)}: variable {m.group(1)} has a hardcoded default (value not shown, {len(dm.group(1))} chars)", "P1", evidence=rel(f), layer="iac")
+                emit("NEW-TF-HARDCODED-SECRET", f"var.{m.group(1)}", f"{rel(f)}: variable {m.group(1)} has a hardcoded default (value not shown, {len(dm.group(1))} chars)", "P1", evidence=rel(f), layer="iac")
         for m, body in blocks(s, r'^module\s+"([^"]+)"\s*\{'):
             sm = re.search(r'source\s*=\s*"([^"]+)"', body)
             if not sm: continue
@@ -48,18 +75,18 @@ def scan_static(repo, find, sec_key, param=None):
             remote_git = src.startswith(("git::", "github.com/", "git@", "bitbucket.org/"))
             registry = re.match(r"^[\w-]+/[\w-]+/[\w-]+$", src)
             if remote_git and not re.search(r"[?&]ref=([0-9a-f]{40}|v?\d+\.\d+)", src):
-                find("NEW-IAC-MODULE-PIN", f"module.{m.group(1)}", f"{rel(f)}: module.{m.group(1)} from {src} without ?ref= tag/sha", "P2", evidence=rel(f), layer="iac")
+                emit("NEW-IAC-MODULE-PIN", f"module.{m.group(1)}", f"{rel(f)}: module.{m.group(1)} from {src} without ?ref= tag/sha", "P2", evidence=rel(f), layer="iac")
             if registry and not re.search(r"^\s*version\s*=", body, re.M):
-                find("NEW-IAC-MODULE-PIN", f"module.{m.group(1)}", f"{rel(f)}: registry module {src} without version", "P2", evidence=rel(f), layer="iac")
+                emit("NEW-IAC-MODULE-PIN", f"module.{m.group(1)}", f"{rel(f)}: registry module {src} without version", "P2", evidence=rel(f), layer="iac")
         for m, body in blocks(s, r'^\s*required_providers\s*\{'):
             for pm, pb in blocks(body, r'^\s*([\w-]+)\s*=\s*\{'):
                 src = (re.search(r'source\s*=\s*"([^"]+)"', pb) or re.search("()", "")).group(1) or pm.group(1)
-                if not re.search(r'version\s*=', pb):
-                    find("NEW-IAC-PROVIDER-PIN", src, f"{rel(f)}: provider {src} has no version constraint", "P2", evidence=rel(f), layer="iac")
+                if not re.search(r'version\s*=', pb) and not noise_path(rel(f)):
+                    emit("NEW-IAC-PROVIDER-PIN", src, f"{rel(f)}: provider {src} has no version constraint", "P2", evidence=rel(f), layer="iac")
         for m, body in blocks(s, r'^data\s+"aws_ami"\s+"([^"]+)"\s*\{'):
             if not re.search(r'^\s*owners\s*=', body, re.M):
                 ex = " + allow_unsafe_filter=true (provider guard silenced)" if "allow_unsafe_filter" in body else ""
-                find("NEW-IAC-AMI-OWNERS", f"data.aws_ami.{m.group(1)}", f"{rel(f)}: data.aws_ami.{m.group(1)} picks most_recent by name with no owners{ex}", "P1", evidence=rel(f), layer="iac")
+                emit("NEW-IAC-AMI-OWNERS", f"data.aws_ami.{m.group(1)}", f"{rel(f)}: data.aws_ami.{m.group(1)} picks most_recent by name with no owners{ex}", "P1", evidence=rel(f), layer="iac")
         # secrets that WILL be in state (plaintext) even if marked sensitive
         for m, body in blocks(s, r'^resource\s+"(aws_ssm_parameter|aws_db_instance|aws_rds_cluster|random_password|aws_secretsmanager_secret_version|aws_iam_access_key|tls_private_key|aws_iam_user_login_profile)"\s+"([^"]+)"\s*\{'):
             typ, name = m.groups()
@@ -67,36 +94,85 @@ def scan_static(repo, find, sec_key, param=None):
                     "aws_secretsmanager_secret_version": "secret_string", "aws_iam_access_key": "secret", "tls_private_key": "private_key_pem", "aws_iam_user_login_profile": "password"}[typ]
             if typ == "aws_ssm_parameter" and not sec_key.search(body): continue
             if typ == "aws_db_instance" and "manage_master_user_password" in body: continue
-            find("NEW-TF-STATE-SECRETS", f"{typ}.{name}", f"{rel(f)}: {typ}.{name}.{attr} is stored in PLAINTEXT in the remote state (state content not read: needs client-shared redacted state or `terraform show -json` key list)",
+            emit("NEW-TF-STATE-SECRETS", f"{typ}.{name}", f"{rel(f)}: {typ}.{name}.{attr} is stored in PLAINTEXT in the remote state (state content not read: needs client-shared redacted state or `terraform show -json` key list)",
                  "P1", status="needs_validation", evidence=rel(f), layer="iac")
 
     git = lambda *a: subprocess.run(["git", "-C", repo, *a], capture_output=True, text=True)
     if tf_files:
         if git("ls-files", "--error-unmatch", "infra/.terraform.lock.hcl").returncode != 0 and not git("ls-files", "*.terraform.lock.hcl").stdout.strip():
             ign = git("check-ignore", "-v", "infra/.terraform.lock.hcl").stdout.strip()
-            find("NEW-IAC-LOCKFILE", ".terraform.lock.hcl", f".terraform.lock.hcl not committed{' (gitignored: ' + ign.split(chr(9))[0] + ')' if ign else ''}: no provider checksum pinning", "P2", evidence=".gitignore", layer="iac")
+            emit("NEW-IAC-LOCKFILE", ".terraform.lock.hcl", f".terraform.lock.hcl not committed{' (gitignored: ' + ign.split(chr(9))[0] + ')' if ign else ''}: no provider checksum pinning", "P2", evidence=".gitignore", layer="iac")
 
     # ---- GitHub Actions ----
     try:
         import yaml
     except ImportError:
         sys.exit("pip install pyyaml")
+    def load_yaml(raw):
+        try:
+            return yaml.safe_load(raw)
+        except Exception:
+            try:
+                return yaml.safe_load(raw.replace("\t", "  "))
+            except Exception:
+                return None
+
+    def runs_pr_head(doc, raw):
+        """True when a job checks out the PR head and then runs or builds it."""
+        jobs = (doc or {}).get("jobs") or {}
+        if not isinstance(jobs, dict):
+            return False
+        head_ref = re.compile(r"github\.event\.pull_request\.head\.(sha|ref)|github\.head_ref")
+        for job in jobs.values():
+            if not isinstance(job, dict):
+                continue
+            saw_checkout = False
+            for step in job.get("steps") or []:
+                if not isinstance(step, dict):
+                    continue
+                uses = str(step.get("uses") or "")
+                with_ = step.get("with") if isinstance(step.get("with"), dict) else {}
+                ref = str(with_.get("ref") or "")
+                if "checkout" in uses and head_ref.search(ref):
+                    saw_checkout = True
+                    continue
+                if saw_checkout and (step.get("run") or uses):
+                    return True
+        return bool(re.search(
+            r"uses:\s*[^\n]*checkout[^\n]*\n(?:[^\n]*\n){0,8}?[^\n]*ref:\s*\$\{\{\s*github\.event\.pull_request\.head\.(sha|ref)",
+            raw,
+        ) and re.search(r"^\s*-?\s*run:", raw, re.M))
+
     WF = {}
     for f in sorted(glob.glob(f"{repo}/.github/workflows/*.y*ml")):
-        raw = open(f).read(); d = yaml.safe_load(raw); WF[os.path.basename(f)] = (d, raw)
+        if not os.path.isfile(f):
+            continue
+        raw = read_text(f)
+        if raw is None:
+            continue
+        try:
+            d = load_yaml(raw)
+        except Exception as exc:
+            skip(f, exc)
+            continue
+        if not isinstance(d, dict):
+            skip(f, "skipped: parse error")
+            continue
+        WF[os.path.basename(f)] = (d, raw)
     for name, (d, raw) in WF.items():
         on = d.get(True, d.get("on")) or {}
         on = {on: None} if isinstance(on, str) else ({k: None for k in on} if isinstance(on, list) else on)
         prt, pr = "pull_request_target" in on, "pull_request" in on
         perms = d.get("permissions")
+        jobs = d.get("jobs") if isinstance(d.get("jobs"), dict) else {}
         if perms == "write-all" or (isinstance(perms, dict) and any(v == "write" for v in perms.values()) and len(perms) > 4):
-            find("NEW-CICD-PERMS", name, f"{name}: permissions: write-all (GITHUB_TOKEN can push/tag/release)", "P2", evidence=name, layer="cicd")
-        elif perms is None and not all(isinstance(j, dict) and "permissions" in j for j in (d.get("jobs") or {}).values()):
-            find("NEW-CICD-PERMS", name, f"{name}: no permissions block (inherits repo default token scope)", "P3", evidence=name, layer="cicd")
+            emit("NEW-CICD-PERMS", name, f"{name}: permissions: write-all (GITHUB_TOKEN can push/tag/release)", "P2", evidence=name, layer="cicd")
+        elif perms is None and not all(isinstance(j, dict) and "permissions" in j for j in jobs.values()):
+            emit("NEW-CICD-PERMS", name, f"{name}: no permissions block (inherits repo default token scope)", "P3", evidence=name, layer="cicd")
         uses_keys = bool(re.search(r"secrets\.AWS_(ACCESS_KEY_ID|SECRET_ACCESS_KEY)|aws-access-key-id", raw))
         oidc = "id-token: write" in raw or (isinstance(perms, dict) and perms.get("id-token") == "write")
         if uses_keys and not oidc:
-            find("NEW-CICD-NO-OIDC", name, f"{name}: long-lived AWS keys from GitHub secrets (no OIDC / id-token: write)", "P1", evidence=name, layer="cicd")
+            emit("NEW-CICD-NO-OIDC", name, f"{name}: long-lived AWS keys from GitHub secrets (no OIDC / id-token: write)", "P1", evidence=name, layer="cicd")
         applies = bool(re.search(r"terraform[^\n]*\bapply\b", raw))
         if applies and param("NEW-CICD-PR-APPLY.scope", "job") == "job":
             # job-aware: only jobs that contain the apply AND are not gated to push/main count
@@ -104,28 +180,39 @@ def scan_static(repo, find, sec_key, param=None):
                 c = str(j.get("if", ""))
                 return bool(re.search(r"github\.event_name\s*==\s*'push'|github\.ref\s*==\s*'refs/heads/", c)) and "pull_request" not in c
             applies = any(isinstance(j, dict) and re.search(r"terraform[^\n]*\bapply\b", yaml.safe_dump(j)) and not gated_off_pr(j)
-                          for j in (d.get("jobs") or {}).values())
+                          for j in jobs.values())
         if applies and (pr or prt):
-            find("NEW-CICD-PR-APPLY", name, f"{name}: runs terraform apply on {'pull_request_target' if prt else 'pull_request'} (unreviewed code changes prod)", "P0", evidence=name, layer="cicd")
+            emit("NEW-CICD-PR-APPLY", name, f"{name}: runs terraform apply on {'pull_request_target' if prt else 'pull_request'} (unreviewed code changes prod)", "P0", evidence=name, layer="cicd")
         unpinned = sorted({u for u in re.findall(r"uses:\s*([\w.-]+/[\w./-]+@[\w.-]+)", raw) if not re.search(r"@[0-9a-f]{40}$", u)})
         if unpinned:
-            find("NEW-CICD-ACTION-PIN", name, f"{name}: actions not pinned to a commit SHA: {', '.join(unpinned)}", "P2", evidence=name, layer="cicd")
+            emit("NEW-CICD-ACTION-PIN", name, f"{name}: actions not pinned to a commit SHA: {', '.join(unpinned)}", "P2", evidence=name, layer="cicd")
         if prt:
-            if re.search(r"ref:\s*\$\{\{\s*github\.event\.pull_request\.head\.(sha|ref)", raw) or "github.head_ref" in raw:
-                find("NEW-CICD-PRT-HEAD", name, f"{name}: pull_request_target checks out the PR head and runs it (pwn request)", "P0", evidence=name, layer="cicd")
-            sec = sorted(set(re.findall(r"secrets\.([A-Z0-9_]+)", raw)))
+            runs_head = runs_pr_head(d, raw)
+            if runs_head:
+                emit("NEW-CICD-PRT-HEAD", name, f"{name}: pull_request_target checks out the PR head and runs it (pwn request)", "P0", evidence=name, layer="cicd")
+            sec = [s for s in sorted(set(re.findall(r"secrets\.([A-Z0-9_]+)", raw))) if s != "GITHUB_TOKEN"]
             if sec:
-                find("NEW-CICD-FORK-SECRETS", name, f"{name}: pull_request_target job exposes secrets to fork PRs: {', '.join(sec)} (names only)", "P1", evidence=name, layer="cicd")
+                # P1 only when the job actually runs the PR's code. A token used to comment is P3.
+                sev = "P1" if runs_head else "P3"
+                emit("NEW-CICD-FORK-SECRETS", name, f"{name}: pull_request_target job exposes secrets to fork PRs: {', '.join(sec)} (names only)", sev, evidence=name, layer="cicd")
 
     # ---- Helm (repo side) ----
     for f in glob.glob(f"{repo}/**/helmfile*.y*ml", recursive=True) + glob.glob(f"{repo}/**/Chart.yaml", recursive=True):
-        d = yaml.safe_load(open(f)) or {}
+        if not os.path.isfile(f):
+            continue
+        raw_h = read_text(f)
+        if raw_h is None:
+            continue
+        d = load_yaml(raw_h)
+        if not isinstance(d, dict):
+            skip(f, "skipped: parse error")
+            continue
         bad = [r.get("url") for r in d.get("repositories", []) if str(r.get("url", "")).startswith("http://") or not r.get("verify")]
         bad += [x.get("repository") for x in d.get("dependencies", []) if str(x.get("repository", "")).startswith("http://")]
         nover = [r["name"] for r in d.get("releases", []) if "/" in str(r.get("chart", "")) and not str(r.get("chart")).startswith(".") and not r.get("version")]
         nover += [x["name"] for x in d.get("dependencies", []) if str(x.get("version", "*")) in ("*", "", "latest") or x.get("version", "").startswith(">")]
         if bad or nover:
-            find("NEW-HELM-REPO", os.path.basename(f), f"{rel(f)}: unverified/plain-http chart repos {bad} and unpinned charts {nover}", "P2", evidence=rel(f), layer="helm")
+            emit("NEW-HELM-REPO", os.path.basename(f), f"{rel(f)}: unverified/plain-http chart repos {bad} and unpinned charts {nover}", "P2", evidence=rel(f), layer="helm")
 
 
     # ---- Supply chain: Docker / deps / AI agent skills & MCP (static, free OSS path) ----
@@ -142,11 +229,15 @@ def scan_static(repo, find, sec_key, param=None):
         "debian": {"9", "10", "stretch", "buster"},
         "centos": {"6", "7", "8"},
     }
-    INJECT_MARKERS = re.compile(
-        r"ignore\s+(all\s+)?previous\s+instructions|disregard\s+(all\s+)?prior|"
-        r"<!--[^>]{0,200}(?:ignore|exfil|send\s+(?:the\s+)?(?:data|credentials|secrets)|https?://)[^>]{0,200}-->|"
-        r"(?:exfil|send|post|upload)\b[^\n]{0,80}\bhttps?://|"
-        r"(?:base64|b64)[^\n]{0,40}[A-Za-z0-9+/]{24,}={0,2}",
+    # Instruction-shaped only. Ordinary "send" / "token" in a skill or a .d.ts is not a P0.
+    INJECT_OVERRIDE = re.compile(
+        r"ignore\s+(all\s+)?(previous|prior|above)\s+instructions|disregard\s+(all\s+)?(prior|previous)|"
+        r"do\s+not\s+tell\s+the\s+user|hide\s+(this|it)\s+from\s+the\s+user",
+        re.I,
+    )
+    INJECT_EXFIL = re.compile(r"(?:exfiltrate|exfil|send|post|upload)\b[^\n]{0,80}\bhttps?://", re.I)
+    INJECT_COMMENT = re.compile(
+        r"<!--[^>]{0,240}(?:ignore\s+(?:all\s+)?previous|exfil|https?://)[^>]{0,240}-->",
         re.I,
     )
     SECRET_ENV = re.compile(r"(pass(word|wd)?|secret|token|api[_-]?key|private[_-]?key|credential|openai|anthropic|aws[_-]?secret)", re.I)
@@ -165,21 +256,31 @@ def scan_static(repo, find, sec_key, param=None):
         f"{repo}/.vscode/mcp.json",
     ]
 
+    def is_instruction_file(path):
+        base = os.path.basename(path).lower()
+        if base.endswith((".d.ts", ".ts", ".js", ".py", ".sh")):
+            return False
+        if base in ("skill.md", "agents.md", "claude.md", ".cursorrules") or base.endswith(".mdc"):
+            return True
+        relp = rel(path).lower()
+        return base.endswith(".md") and any(part in relp.split("/") for part in ("rules", "skills", "commands", "agents", ".claude", ".cursor", ".codex"))
+
     def walk_skill_files():
         seen = set()
         for g in SKILL_GLOBS:
             for f in glob.glob(g, recursive=True):
-                if not os.path.isfile(f):
+                if not os.path.isfile(f) or f in seen:
                     continue
-                if f.endswith((".md", ".mdc", ".txt", ".sh", ".py", ".js", ".ts")) or f.endswith("SKILL.md"):
-                    if f not in seen:
-                        seen.add(f); yield f
+                seen.add(f)
+                yield f
 
-    # Dockerfiles
+    # Dockerfiles. A directory named Dockerfile (seen in the wild) is not a file.
     for df in sorted(set(glob.glob(f"{repo}/**/Dockerfile*", recursive=True))):
-        if "/.terraform/" in df or "/node_modules/" in df:
+        if not os.path.isfile(df) or "/.terraform/" in df or "/node_modules/" in df:
             continue
-        raw = open(df, encoding="utf-8", errors="replace").read()
+        raw = read_text(df)
+        if raw is None:
+            continue
         r = rel(df)
         floating, eol = [], []
         for m in FROM_RE.finditer(raw):
@@ -202,18 +303,18 @@ def scan_static(repo, find, sec_key, param=None):
                     if majors & eol_set or tag in eol_set:
                         eol.append(ref)
         if floating:
-            find("NEW-DOCKER-FROM-PIN", "Dockerfile", f"{r}: FROM uses floating tag without @sha256 digest: {', '.join(floating)}", "P2", evidence=r, layer="supply")
+            emit("NEW-DOCKER-FROM-PIN", "Dockerfile", f"{r}: FROM uses floating tag without @sha256 digest: {', '.join(floating)}", "P2", evidence=r, layer="supply")
         if eol:
-            find("NEW-DOCKER-EOL-BASE", "Dockerfile", f"{r}: FROM uses EOL/old base image: {', '.join(eol)}", "P1", evidence=r, layer="supply")
+            emit("NEW-DOCKER-EOL-BASE", "Dockerfile", f"{r}: FROM uses EOL/old base image: {', '.join(eol)}", "P1", evidence=r, layer="supply")
         pipes = PIPE_SHELL.findall(raw)
         if pipes:
-            find("NEW-DOCKER-PIPE-SHELL", "Dockerfile", f"{r}: pipe-to-shell in RUN ({len(pipes)} hit(s), e.g. curl|bash)", "P1", evidence=r, layer="supply")
+            emit("NEW-DOCKER-PIPE-SHELL", "Dockerfile", f"{r}: pipe-to-shell in RUN ({len(pipes)} hit(s), e.g. curl|bash)", "P1", evidence=r, layer="supply")
         for am in ADD_REMOTE.finditer(raw):
             # BuildKit --checksum= is the safe form; a preceding CHECKSUM= env is not enough
             window_start = max(0, am.start() - 120)
             window = raw[window_start:am.end()]
             if "--checksum" not in window and not re.search(r"checksum\s*=\s*\S+", window, re.I):
-                find("NEW-DOCKER-ADD-REMOTE", "Dockerfile", f"{r}: ADD from remote URL without checksum: {am.group(1)}", "P2", evidence=r, layer="supply")
+                emit("NEW-DOCKER-ADD-REMOTE", "Dockerfile", f"{r}: ADD from remote URL without checksum: {am.group(1)}", "P2", evidence=r, layer="supply")
                 break
         for pm in PIP_UNPIN.finditer(raw):
             args = pm.group(1)
@@ -221,7 +322,7 @@ def scan_static(repo, find, sec_key, param=None):
                 continue
             pkgs = [t for t in re.split(r"\s+", args.strip()) if t and not t.startswith("-")]
             if any("==" not in p and ">=" not in p and "~=" not in p for p in pkgs):
-                find("NEW-DOCKER-UNPINNED-INSTALL", "Dockerfile", f"{r}: pip install of unpinned package(s) not via requirements file: {' '.join(pkgs[:5])}", "P2", evidence=r, layer="supply")
+                emit("NEW-DOCKER-UNPINNED-INSTALL", "Dockerfile", f"{r}: pip install of unpinned package(s) not via requirements file: {' '.join(pkgs[:5])}", "P2", evidence=r, layer="supply")
                 break
         for nm in NPM_UNPIN.finditer(raw):
             args = nm.group(1)
@@ -229,7 +330,7 @@ def scan_static(repo, find, sec_key, param=None):
                 continue
             pkgs = [t for t in re.split(r"\s+", args.strip()) if t and not t.startswith("-")]
             if pkgs and any("@" not in p.split("/")[-1] or p.endswith("@latest") for p in pkgs):
-                find("NEW-DOCKER-UNPINNED-INSTALL", "Dockerfile", f"{r}: npm install of unpinned package(s): {' '.join(pkgs[:5])}", "P2", evidence=r, layer="supply")
+                emit("NEW-DOCKER-UNPINNED-INSTALL", "Dockerfile", f"{r}: npm install of unpinned package(s): {' '.join(pkgs[:5])}", "P2", evidence=r, layer="supply")
                 break
         # optional offline-ish CVE assist (never required; no plant; degrade if missing)
         if floating or eol:
@@ -241,7 +342,7 @@ def scan_static(repo, find, sec_key, param=None):
                     # best-effort, short timeout, never fail the audit
                     p = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
                     if p.returncode not in (0, None) and (p.stdout or p.stderr):
-                        find("NEW-DOCKER-CVE-OPTIONAL", "Dockerfile", f"{r}: {tool} reported issues on Dockerfile (optional offline assist)", "P3",
+                        emit("NEW-DOCKER-CVE-OPTIONAL", "Dockerfile", f"{r}: {tool} reported issues on Dockerfile (optional offline assist)", "P3",
                              status="needs_validation", evidence=r, layer="supply")
                 except Exception:
                     pass
@@ -250,14 +351,17 @@ def scan_static(repo, find, sec_key, param=None):
     # CI workflows: pipe-to-shell
     for name, (d, raw) in WF.items():
         if PIPE_SHELL.search(raw):
-            find("NEW-CICD-PIPE-SHELL", name, f"{name}: pipe-to-shell (curl|bash / wget|sh) in a workflow step", "P1", evidence=name, layer="supply")
+            emit("NEW-CICD-PIPE-SHELL", name, f"{name}: pipe-to-shell (curl|bash / wget|sh) in a workflow step", "P1", evidence=name, layer="supply")
 
     # requirements.txt unpinned
     for req in sorted(glob.glob(f"{repo}/**/requirements*.txt", recursive=True)):
-        if "/.terraform/" in req or "/node_modules/" in req:
+        if not os.path.isfile(req) or "/.terraform/" in req or "/node_modules/" in req:
+            continue
+        raw_req = read_text(req)
+        if raw_req is None:
             continue
         bad = []
-        for line in open(req, encoding="utf-8", errors="replace"):
+        for line in raw_req.splitlines():
             line = line.strip()
             if not line or line.startswith("#") or line.startswith("-"):
                 continue
@@ -265,16 +369,14 @@ def scan_static(repo, find, sec_key, param=None):
             if re.match(r"^[A-Za-z0-9_.-]+$", line) or (re.match(r"^[A-Za-z0-9_.-]+", line) and not re.search(r"(==|>=|<=|~=|!=|@)", line)):
                 bad.append(line.split()[0] if line.split() else line)
         if bad:
-            find("NEW-DEPS-UNPINNED", "requirements.txt", f"{rel(req)}: unpinned Python deps (no ==): {', '.join(bad[:8])}", "P2", evidence=rel(req), layer="supply")
+            emit("NEW-DEPS-UNPINNED", "requirements.txt", f"{rel(req)}: unpinned Python deps (no ==): {', '.join(bad[:8])}", "P2", evidence=rel(req), layer="supply")
 
     # package.json without lockfile
     for pj in sorted(glob.glob(f"{repo}/**/package.json", recursive=True)):
-        if "/node_modules/" in pj or "/.terraform/" in pj:
+        if not os.path.isfile(pj) or "/node_modules/" in pj or "/.terraform/" in pj or noise_path(rel(pj)):
             continue
-        d = os.path.dirname(pj)
-        locks = [x for x in ("package-lock.json", "yarn.lock", "pnpm-lock.yaml", "npm-shrinkwrap.json") if os.path.isfile(os.path.join(d, x))]
-        if not locks:
-            find("NEW-DEPS-NO-LOCKFILE", "package.json", f"{rel(pj)}: package.json present but no lockfile (package-lock.json / yarn.lock / pnpm-lock.yaml)", "P2", evidence=rel(pj), layer="supply")
+        if not has_lockfile(os.path.dirname(pj), repo):
+            emit("NEW-DEPS-NO-LOCKFILE", "package.json", f"{rel(pj)}: package.json present but no lockfile (package-lock.json / yarn.lock / pnpm-lock.yaml) in this directory or a parent", "P2", evidence=rel(pj), layer="supply")
 
     # Renovate / Dependabot update hygiene
     reno = None
@@ -308,7 +410,7 @@ def scan_static(repo, find, sec_key, param=None):
     if not hygiene_ok:
         why = ("renovate/dependabot config missing" if not (reno or dep)
                else f"{rel(reno or dep)} present but no minimumReleaseAge / cooldown")
-        find("NEW-DEPS-UPDATE-HYGIENE", res_name, f"Dependency update hygiene: {why}", "P3", evidence=res_name, layer="supply")
+        emit("NEW-DEPS-UPDATE-HYGIENE", res_name, f"Dependency update hygiene: {why}", "P3", evidence=res_name, layer="supply")
 
     # AI agent skills / rules
     for sf in walk_skill_files():
@@ -317,12 +419,16 @@ def scan_static(repo, find, sec_key, param=None):
         except Exception:
             continue
         base = os.path.basename(sf)
-        if INJECT_MARKERS.search(txt):
-            find("NEW-AGENT-PROMPT-INJECT", base if base != "install.sh" else "SKILL.md",
-                 f"{rel(sf)}: agent skill/rule contains prompt-injection / exfil markers", "P0", evidence=rel(sf), layer="supply")
-            # one finding per plant resource is enough; keep scanning other files for scripts
-        if sf.endswith((".sh", ".py", ".js", ".ts")) and (PIPE_SHELL.search(txt) or re.search(r"\beval\s*\(|\bexec\s*\(", txt) or re.search(r"https?://\S*(exfil|evil|invalid)", txt, re.I)):
-            find("NEW-AGENT-SKILL-SCRIPT", base, f"{rel(sf)}: skill-bundled script runs pipe-to-shell / eval / exfil URL", "P0", evidence=rel(sf), layer="supply")
+        if is_instruction_file(sf):
+            has_override = bool(INJECT_OVERRIDE.search(txt) or INJECT_COMMENT.search(txt))
+            has_exfil = bool(INJECT_EXFIL.search(txt))
+            if has_override or has_exfil:
+                # P0 only with an exfil URL or an HTML comment that carries one. Instruction text alone is P2.
+                sev = "P0" if has_exfil or (INJECT_COMMENT.search(txt) and re.search(r"https?://", INJECT_COMMENT.search(txt).group(0))) else "P2"
+                emit("NEW-AGENT-PROMPT-INJECT", base if base != "install.sh" else "SKILL.md",
+                     f"{rel(sf)}: agent skill/rule contains prompt-injection / exfil markers", sev, evidence=rel(sf), layer="supply")
+        if sf.endswith((".sh", ".py", ".js", ".ts")) and not sf.endswith(".d.ts") and (PIPE_SHELL.search(txt) or re.search(r"\beval\s*\(|\bexec\s*\(", txt) or re.search(r"https?://\S*(exfil|evil|invalid)", txt, re.I)):
+            emit("NEW-AGENT-SKILL-SCRIPT", base, f"{rel(sf)}: skill-bundled script runs pipe-to-shell / eval / exfil URL", "P0", evidence=rel(sf), layer="supply")
 
     # MCP configs
     for mp in MCP_PATHS:
@@ -378,11 +484,11 @@ def scan_static(repo, find, sec_key, param=None):
                     broad.append(f"{sname}:{a}")
         bn = "mcp.json"
         if unpinned:
-            find("NEW-AGENT-MCP-PIN", bn, f"{rel(mp)}: MCP server(s) unpinned (npx/uvx @latest / bare / git without SHA): {', '.join(unpinned[:6])}", "P1", evidence=rel(mp), layer="supply")
+            emit("NEW-AGENT-MCP-PIN", bn, f"{rel(mp)}: MCP server(s) unpinned (npx/uvx @latest / bare / git without SHA): {', '.join(unpinned[:6])}", "P1", evidence=rel(mp), layer="supply")
         if secrets:
-            find("NEW-AGENT-MCP-SECRETS", bn, f"{rel(mp)}: MCP env has hardcoded secret-like keys (values not shown): {', '.join(secrets[:6])}", "P1", evidence=rel(mp), layer="supply")
+            emit("NEW-AGENT-MCP-SECRETS", bn, f"{rel(mp)}: MCP env has hardcoded secret-like keys (values not shown): {', '.join(secrets[:6])}", "P1", evidence=rel(mp), layer="supply")
         if broad:
-            find("NEW-AGENT-MCP-FS", bn, f"{rel(mp)}: MCP filesystem server granted broad root(s): {', '.join(broad[:6])}", "P2", evidence=rel(mp), layer="supply")
+            emit("NEW-AGENT-MCP-FS", bn, f"{rel(mp)}: MCP filesystem server granted broad root(s): {', '.join(broad[:6])}", "P2", evidence=rel(mp), layer="supply")
 
 
 

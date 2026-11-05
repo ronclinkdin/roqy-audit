@@ -16,9 +16,25 @@ RULES = [
             "Pin every action to a full commit SHA and drop write-all token permissions.",
         ],
         "need": ["NEW-CICD-ACTION-PIN"],
-        "need_any": ["NEW-CICD-PERMS", "NEW-CICD-FORK-SECRETS"],
-        "need_any_2": ["NEW-CICD-NO-OIDC", "NEW-CICD-PR-APPLY", "NEW-CICD-PRT-HEAD", "NEW-CICD-FORK-SECRETS"],
+        "need_any": ["NEW-CICD-PERMS", "NEW-CICD-FORK-SECRETS", "NEW-CICD-PRT-HEAD", "NEW-CICD-PR-APPLY"],
+        # A cloud link is required. Unpinned actions plus a write token, with no keys and no deploy, is not a takeover.
+        "need_any_2": ["NEW-CICD-NO-OIDC", "NEW-CICD-PR-APPLY"],
         "steps": ["NEW-CICD-ACTION-PIN", "NEW-CICD-PERMS", "NEW-CICD-FORK-SECRETS", "NEW-CICD-NO-OIDC", "NEW-CICD-PR-APPLY", "NEW-CICD-PRT-HEAD"],
+    },
+    {
+        "id": "ci-supply-chain",
+        "title": "CI supply-chain compromise",
+        "severity": "P2",
+        "impact": "Unpinned or over-privileged CI can run unreviewed code, but this repo shows no cloud credential or deploy step to connect that to the account.",
+        "fix_order": [
+            "Pin every action to a full commit SHA.",
+            "Set an explicit least-privilege permissions block.",
+            "Do not check out pull-request head code from pull_request_target.",
+        ],
+        "need": ["NEW-CICD-ACTION-PIN"],
+        "need_any": ["NEW-CICD-PERMS", "NEW-CICD-PRT-HEAD", "NEW-CICD-FORK-SECRETS"],
+        "forbid": ["NEW-CICD-NO-OIDC", "NEW-CICD-PR-APPLY"],
+        "steps": ["NEW-CICD-ACTION-PIN", "NEW-CICD-PERMS", "NEW-CICD-PRT-HEAD", "NEW-CICD-FORK-SECRETS"],
     },
     {
         "id": "build-time-code-injection",
@@ -70,6 +86,8 @@ def _has(ids, rule):
         return False
     if rule.get("need_any_2") and not (ids & set(rule["need_any_2"])):
         return False
+    if rule.get("forbid") and (ids & set(rule["forbid"])):
+        return False
     return True
 
 
@@ -97,5 +115,16 @@ def build_chains(findings):
             "fix_order": list(rule["fix_order"]),
             "steps": steps,
         })
+    covered = {step["index"] for chain in chains for step in chain["steps"]}
+    for i, f in enumerate(findings):
+        if f.get("severity") == "P0" and f.get("tool", "roqy") == "roqy" and i not in covered:
+            chains.append({
+                "id": f"single-{f.get('check_id')}",
+                "title": f.get("title") or f.get("check_id"),
+                "severity": "P0",
+                "impact": "A critical finding that does not combine with another check into a longer chain.",
+                "fix_order": [f"Fix {f.get('check_id')} ({f.get('resource', '')})."],
+                "steps": [{"check_id": f.get("check_id"), "index": i, "resource": f.get("resource", ""), "title": f.get("title", "")}],
+            })
     chains.sort(key=lambda c: SEV_ORDER.index(c["severity"]) if c["severity"] in SEV_ORDER else 9)
     return chains
