@@ -17,8 +17,11 @@ run against your infrastructure by the people who built it:
 pip install -e .
 roqy-audit scan .
 roqy-audit scan path/to/repo --md report.md --json report.json --sarif report.sarif
+roqy-audit scan . --md report.md --remediate fixes.md
 roqy-audit check-skill path/to/skill-or-mcp
 ```
+
+`report.md` always includes **How to break these chains**: at most three repo-only edits, ranked by how many P0/P1 chains they close. When the file in the repo is enough, the edit is a unified diff you can apply. The report does not invent commit SHAs, image digests, or cloud role ARNs, and it does not print secret values. `--remediate` writes that section on its own.
 
 Exit code 1 when a finding or attack chain is at least `--fail-on` (default `P1`). `--fail-on none` always exits 0. If `trivy`, `gitleaks`, `zizmor`, `checkov`, or `osv-scanner` are on `PATH`, their output is normalized into the same findings and deduped. A missing tool is listed as `not run` and does not fail the scan.
 
