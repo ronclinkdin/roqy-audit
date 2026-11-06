@@ -3,6 +3,7 @@ import json
 
 from roqy_audit import __version__
 from roqy_audit.chains import SEV_ORDER
+from roqy_audit.remediate import render_markdown
 from roqy_audit.soc2 import DISCLAIMER, for_check
 
 _SARIF_LEVEL = {"P0": "error", "P1": "error", "P2": "warning", "P3": "note"}
@@ -28,6 +29,8 @@ def to_markdown(payload):
         f"# roqy-audit scan: {payload.get('target', '.')}",
         "",
         f"{len(findings)} findings, {len(chains)} attack chains. {DISCLAIMER}",
+        "",
+        render_markdown(payload.get("remediation") or []).rstrip(),
         "",
         "## Attack chains",
         "",

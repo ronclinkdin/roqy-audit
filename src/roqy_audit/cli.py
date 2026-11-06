@@ -6,6 +6,7 @@ _SECRET_RE = re.compile(r"pass(word|wd)?|secret|token|api[_.-]?key|private[_.-]?
 from roqy_audit import __version__
 from roqy_audit.adapters import dedupe, run_adapters
 from roqy_audit.chains import build_chains
+from roqy_audit.remediate import recommend, render_markdown
 from roqy_audit.report import annotate, fails, to_json, to_markdown, to_sarif
 from roqy_audit.repo_scan import scan_static
 from roqy_audit.skill_risk import assess
@@ -37,6 +38,7 @@ def scan_path(path, use_adapters=True):
         "target": path,
         "findings": findings,
         "chains": chains,
+        "remediation": recommend(findings, path),
         "tools": ours_tools + tools,
         "skipped": skipped,
         "disclaimer": "Indicative SOC 2 labels, not an auditor opinion. Static checks did not call the network.",
@@ -82,6 +84,7 @@ def main(argv=None):
     sc.add_argument("--fail-on", default="P1", choices=["P0", "P1", "P2", "P3", "none"],
                     help="exit 1 when a finding or chain is at least this severe (default P1)")
     sc.add_argument("--no-adapters", action="store_true", help="do not run trivy, gitleaks, zizmor, checkov, or osv-scanner")
+    sc.add_argument("--remediate", help="write only the 'How to break these chains' section to this file")
 
     sk = sub.add_parser("check-skill", help="pre-install risk report for a skill or MCP server (static; never executes the target)")
     sk.add_argument("target", help="local directory or git URL (shallow clone)")
@@ -94,6 +97,9 @@ def main(argv=None):
         payload = scan_path(args.path, use_adapters=not args.no_adapters)
         md, js, sarif = to_markdown(payload), to_json(payload), to_sarif(payload)
         wrote = False
+        if args.remediate:
+            open(args.remediate, "w", encoding="utf-8").write(render_markdown(payload["remediation"]))
+            wrote = True
         if args.md:
             open(args.md, "w", encoding="utf-8").write(md); wrote = True
         if args.json:
